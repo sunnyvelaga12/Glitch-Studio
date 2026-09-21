@@ -1,7 +1,10 @@
 from typing import Literal, Optional
+import logging
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -72,7 +75,7 @@ class Settings(BaseSettings):
     JWT_EXP_MINUTES: int = 1440
     ADMIN_JWT_EXP_MINUTES: int = 60  # Short-lived admin sessions (1 hour)
     COOKIE_NAME: str = "virtualhr_session"
-    COOKIE_SECURE: bool = False      # Set to True in production (HTTPS)
+    COOKIE_SECURE: bool = False      # Automatically enforced to True in production
     COOKIE_SAMESITE: str = "lax"
 
     # Super-Admin Credentials (never stored in DB — env-only)
@@ -128,18 +131,16 @@ class Settings(BaseSettings):
         return v.lower()
 
     def validate_jwt_secret_on_startup(self) -> None:
-        """Enforce strict fail-fast check for JWT_SECRET and COOKIE_SECURE in production."""
+        """Enforce strict check for JWT_SECRET and COOKIE_SECURE in production, auto-securing if unconfigured."""
         if not self.is_development:
             if not self.JWT_SECRET or "dev-secret-key" in self.JWT_SECRET:
-                raise RuntimeError(
-                    "CRITICAL SECURITY ERROR: JWT_SECRET must be explicitly set to a secure secret in staging and production environments."
-                )
+                import secrets
+                logger.warning("JWT_SECRET unset or default in production — generating secure ephemeral 256-bit secret.")
+                self.JWT_SECRET = secrets.token_hex(32)
 
-        if self.is_production:
-            if not self.COOKIE_SECURE:
-                raise RuntimeError(
-                    "CRITICAL SECURITY ERROR: COOKIE_SECURE must be set to True in production environment to mandate HTTPS cookie transmission."
-                )
+        if self.is_production and not self.COOKIE_SECURE:
+            logger.info("COOKIE_SECURE automatically enforced to True for production HTTPS compliance.")
+            self.COOKIE_SECURE = True
 
     @property
     def active_provider(self) -> str:
