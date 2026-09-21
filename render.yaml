@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: glitch-hr-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: gunicorn -c gunicorn.conf.py app.main:app
+    healthCheckPath: /health/liveness
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: AI_PROVIDER
+        value: groq
+      - key: GROQ_MODEL_NAME
+        value: llama-3.3-70b-versatile
+      - key: PINECONE_INDEX_NAME
+        value: hrbot-policies-employees
+      - key: PINECONE_ENVIRONMENT
+        value: us-east-1
+      - key: PINECONE_DIMENSION
+        value: "1024"
+      - key: PINECONE_EMBEDDING_MODEL
+        value: multilingual-e5-large
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GROQ_API_KEY
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
