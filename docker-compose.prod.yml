@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: virtualhr-api
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/virtualhr_prod
+      - REDIS_URL=redis://redis:6379/0
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health/liveness"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: virtualhr-outbox-worker
+    command: python -m app.ai_cost_tracker
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=production
+      - MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/virtualhr_prod
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  redis:
+    image: redis:7-alpine
+    container_name: virtualhr-redis
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  clamav:
+    image: clamav/clamav:latest
+    container_name: virtualhr-clamav
+    restart: unless-stopped
+    ports:
+      - "3310:3310"
