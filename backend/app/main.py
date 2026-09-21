@@ -48,10 +48,11 @@ from app.metrics import (
     LLM_REQUESTS_TOTAL,
     LLM_REQUEST_DURATION_SECONDS,
     LLM_TOKENS_TOTAL,
+    generate_latest,
+    CONTENT_TYPE_LATEST,
 )
 from app.sentry_integration import init_sentry
 from app.ai_cost_tracker import record_ai_usage_event_outbox
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 # ---------------------------------------------------------------------------
 # Logging & Sentry Initialisation
