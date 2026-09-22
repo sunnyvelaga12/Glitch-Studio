@@ -440,8 +440,15 @@ async def reset_password(payload: ResetPasswordRequest, request: Request):
     # 1. Update password
     # 2. Mark reset token used
     # 3. Increment tokenVersion -> invalidates all existing active user sessions
+    from bson import ObjectId
+    user_filter = {"_id": user_id}
+    if ObjectId.is_valid(user_id):
+        existing_doc = await db.users.find_one({"_id": user_id})
+        if not existing_doc:
+            user_filter = {"_id": ObjectId(user_id)}
+
     await db.users.update_one(
-        {"_id": user_id},
+        user_filter,
         {
             "$set": {"passwordHash": new_hash},
             "$inc": {"tokenVersion": 1, "token_version": 1},

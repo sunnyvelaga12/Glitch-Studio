@@ -78,7 +78,13 @@ async def get_current_user(
     from app.db import get_db
     db = get_db()
 
+    from bson import ObjectId
     user_doc = await db.users.find_one({"_id": user_id})
+    if not user_doc and user_id and ObjectId.is_valid(user_id):
+        user_doc = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user_doc and payload.get("email"):
+        user_doc = await db.users.find_one({"email": payload.get("email").strip().lower()})
+
     if not user_doc or not user_doc.get("isActive", True):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

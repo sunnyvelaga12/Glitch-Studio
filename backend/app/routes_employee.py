@@ -48,9 +48,12 @@ async def get_my_profile(
         c_filter = {"company_id": company_id} if company_id else {}
 
         
+        from bson import ObjectId
         u_doc = None
         if user_id:
             u_doc = await mongo_db.users.find_one({"_id": user_id, **c_filter})
+            if not u_doc and ObjectId.is_valid(user_id):
+                u_doc = await mongo_db.users.find_one({"_id": ObjectId(user_id), **c_filter})
         if not u_doc and user_email:
             u_doc = await mongo_db.users.find_one({"email": user_email, **c_filter})
             
@@ -105,7 +108,10 @@ async def get_employee_profile(
 
     mongo_db = get_db()
     c_filter = {"company_id": company_id}
+    from bson import ObjectId
     u_doc = await mongo_db.users.find_one({"_id": employee_id, **c_filter})
+    if not u_doc and ObjectId.is_valid(employee_id):
+        u_doc = await mongo_db.users.find_one({"_id": ObjectId(employee_id), **c_filter})
 
     
     if not u_doc:
