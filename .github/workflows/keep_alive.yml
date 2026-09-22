@@ -1,0 +1,23 @@
+name: Render Keep-Alive Heartbeat
+
+on:
+  schedule:
+    # Run every 14 minutes to prevent Render free-tier spin down (Render sleeps after 15m)
+    - cron: '*/14 * * * *'
+  workflow_dispatch:
+
+jobs:
+  heartbeat:
+    name: Ping Render Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send keep-alive health check
+        run: |
+          echo "Pinging Glitch Studio backend on Render..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "https://glitch-studio.onrender.com/health/liveness" || echo "failed")
+          echo "Response HTTP status: $STATUS"
+          if [ "$STATUS" = "200" ]; then
+            echo "Backend is alive and healthy!"
+          else
+            echo "Warning: Received status $STATUS (instance may be waking up)"
+          fi

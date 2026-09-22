@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -45,11 +45,26 @@ export default function LoginPage() {
   const [role, setRole] = useState<"hr_admin" | "employee">("hr_admin");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
+
+  // Pre-warm the backend immediately upon page load to spin up cloud instance if asleep
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/health/liveness`, { cache: "no-store" }).catch(() => {});
+  }, []);
 
   const isAdmin = role === "hr_admin";
 
   async function onSubmit(e: React.FormEvent) {
-    e.preventDefault(); setError(null); setLoading(true);
+    e.preventDefault(); setError(null); setLoading(true); setStatusNotice(null);
+
+    // If server takes longer than 2.5s, inform the user that the cloud service is waking up
+    const warmNoticeTimer = setTimeout(() => {
+      setStatusNotice("Waking up cloud server (free tier instance spins up on first request, ~25-40s). Hang tight...");
+    }, 2500);
+
+    const controller = new AbortController();
+    const abortTimeout = setTimeout(() => controller.abort(), 55000);
+
     try {
       let res: Response;
       try {
@@ -57,14 +72,32 @@ export default function LoginPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email: email.trim(), password }),
+          signal: controller.signal,
         });
-      } catch {
-        throw new Error("Cannot reach backend server. Please ensure the service is running.");
+      } catch (fetchErr: any) {
+        if (fetchErr?.name === "AbortError") {
+          throw new Error("Server took too long to wake up. Please click 'Sign in' again to retry.");
+        }
+        throw new Error("Unable to reach cloud backend. The service may still be booting up — please wait a moment and click 'Sign in' again.");
       }
+
+      if (res.status === 502 || res.status === 503 || res.status === 504) {
+        throw new Error("Cloud server is currently starting up (HTTP " + res.status + "). Please try again in 10-15 seconds.");
+      }
+
       let data: any = {};
-      if ((res.headers.get("content-type") ?? "").includes("application/json")) data = await res.json();
+      if ((res.headers.get("content-type") ?? "").includes("application/json")) {
+        data = await res.json();
+      }
+
       if (!res.ok) {
-        const m = res.status >= 500 ? (data?.detail ?? "Server error.") : res.status === 401 ? (typeof data?.detail === "string" ? data.detail : "Invalid email or password.") : Array.isArray(data?.detail) ? data.detail.map((e: any) => e.msg).join("; ") : (data?.detail ?? "Login failed.");
+        const m = res.status >= 500
+          ? (data?.detail ?? "Server error. Please try again.")
+          : res.status === 401
+          ? (typeof data?.detail === "string" ? data.detail : "Invalid email or password.")
+          : Array.isArray(data?.detail)
+          ? data.detail.map((e: any) => e.msg).join("; ")
+          : (data?.detail ?? "Login failed.");
         throw new Error(m);
       }
       if (!data.accessToken || !data.role) throw new Error("Unexpected response — missing access token.");
@@ -76,6 +109,9 @@ export default function LoginPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed.");
     } finally {
+      clearTimeout(warmNoticeTimer);
+      clearTimeout(abortTimeout);
+      setStatusNotice(null);
       setLoading(false);
     }
   }
@@ -220,10 +256,19 @@ export default function LoginPage() {
                 </div>
               </div>
 
+              {statusNotice && (
+                <div style={{ padding: "10px 14px", borderRadius: 8, background: "#e8f0fe", border: "1px solid #d2e3fc", color: "#174ea6", fontSize: 13, display: "flex", alignItems: "center", gap: 10 }}>
+                  <span className="anim-spin" style={{ width: 16, height: 16, border: "2px solid #1a73e8", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block", flexShrink: 0 }} />
+                  <span>{statusNotice}</span>
+                </div>
+              )}
+
               {error && (
-                <div style={{ padding: "10px 14px", borderRadius: 8, background: "#fce8e6", border: "1px solid #fad2cf", color: "#b3261e", fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
-                  <Icon name="error" size={18} color="#b3261e" />
-                  <span>{error}</span>
+                <div style={{ padding: "10px 14px", borderRadius: 8, background: "#fce8e6", border: "1px solid #fad2cf", color: "#b3261e", fontSize: 13, display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <Icon name="error" size={18} color="#b3261e" style={{ marginTop: 2, flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <span>{error}</span>
+                  </div>
                 </div>
               )}
             </form>

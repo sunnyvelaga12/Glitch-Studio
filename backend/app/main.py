@@ -78,10 +78,12 @@ async def lifespan(app: FastAPI):
             "AI provider not configured — /api/chat will return 503"
         )
 
-    # Initialize MongoDB database indexes
+    # Initialize MongoDB database indexes in background so startup is non-blocking (<0.1s)
+    # This prevents Render healthcheck timeouts and ensures instant readiness
     try:
         from app.db import ensure_indexes
-        await ensure_indexes()
+        import asyncio
+        asyncio.create_task(ensure_indexes())
     except Exception as exc:
         std_logger.warning(f"Failed to trigger index creation on startup: {exc}")
 

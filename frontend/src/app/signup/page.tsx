@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -64,6 +64,12 @@ export default function SignupPage() {
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
+
+  // Pre-warm the backend immediately upon page load
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/health/liveness`, { cache: "no-store" }).catch(() => {});
+  }, []);
 
   const isAdmin = role === "hr_admin";
   const pwStrength = getPasswordStrength(password);
@@ -72,35 +78,55 @@ export default function SignupPage() {
     e.preventDefault(); setError(null);
     if (password !== confirmPassword) { setError("Passwords do not match."); return; }
     if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
-    setLoading(true);
+    setLoading(true); setStatusNotice(null);
+
+    const warmNoticeTimer = setTimeout(() => {
+      setStatusNotice("Waking up cloud server (free tier instance spins up on first request, ~25-40s). Hang tight...");
+    }, 2500);
+
+    const controller = new AbortController();
+    const abortTimeout = setTimeout(() => controller.abort(), 55000);
+
     try {
       const payload: any = { fullName: fullName.trim(), email: email.trim(), password, role };
       if (isAdmin && companyName.trim()) payload.companyName = companyName.trim();
       else if (!isAdmin && passkey.trim()) payload.passkey = passkey.trim();
-      const res = await fetch(`${BACKEND_URL}/api/auth/signup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+
+      let res: Response;
+      try {
+        res = await fetch(`${BACKEND_URL}/api/auth/signup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+      } catch (fetchErr: any) {
+        if (fetchErr?.name === "AbortError") {
+          throw new Error("Server took too long to wake up. Please click 'Create account' again to retry.");
+        }
+        throw new Error("Unable to reach cloud backend. The service may still be booting up — please wait a moment and try again.");
+      }
+
+      if (res.status === 502 || res.status === 503 || res.status === 504) {
+        throw new Error("Cloud server is currently starting up (HTTP " + res.status + "). Please try again in 10-15 seconds.");
+      }
+
       if (!res.ok) {
         let msg = "Signup failed.";
         try {
           const d = await res.json();
-          if (d?.detail) msg = d.detail;
-          else if (res.status >= 500) msg = "Server error.";
+          if (d?.detail) msg = typeof d.detail === "string" ? d.detail : JSON.stringify(d.detail);
+          else if (res.status >= 500) msg = "Server error. Please try again.";
         } catch {}
         throw new Error(msg);
       }
       router.push("/login?signup=success");
     } catch (err) {
-      setError(
-        err instanceof TypeError && err.message === "Failed to fetch"
-          ? "Cannot reach backend server. Please check your connection."
-          : err instanceof Error
-          ? err.message
-          : "Signup failed."
-      );
+      setError(err instanceof Error ? err.message : "Signup failed.");
     } finally {
+      clearTimeout(warmNoticeTimer);
+      clearTimeout(abortTimeout);
+      setStatusNotice(null);
       setLoading(false);
     }
   }
@@ -385,9 +411,16 @@ export default function SignupPage() {
                 </div>
               )}
 
+              {statusNotice && (
+                <div style={{ padding: "10px 14px", borderRadius: 8, background: "#e8f0fe", border: "1px solid #d2e3fc", color: "#174ea6", fontSize: 13, display: "flex", alignItems: "center", gap: 10 }}>
+                  <span className="anim-spin" style={{ width: 16, height: 16, border: "2px solid #1a73e8", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block", flexShrink: 0 }} />
+                  <span>{statusNotice}</span>
+                </div>
+              )}
+
               {error && (
-                <div style={{ padding: "8px 12px", borderRadius: 8, background: "#fce8e6", border: "1px solid #fad2cf", color: "#b3261e", fontSize: 12.5, display: "flex", alignItems: "center", gap: 6 }}>
-                  <Icon name="error" size={16} color="#b3261e" />
+                <div style={{ padding: "8px 12px", borderRadius: 8, background: "#fce8e6", border: "1px solid #fad2cf", color: "#b3261e", fontSize: 12.5, display: "flex", alignItems: "flex-start", gap: 6 }}>
+                  <Icon name="error" size={16} color="#b3261e" style={{ marginTop: 2, flexShrink: 0 }} />
                   <span>{error}</span>
                 </div>
               )}

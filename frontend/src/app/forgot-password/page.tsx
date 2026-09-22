@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -48,6 +48,11 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+
+  // Pre-warm backend on page mount
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/health/liveness`, { cache: "no-store" }).catch(() => {});
+  }, []);
 
   async function handleRequestToken(e: React.FormEvent) {
     e.preventDefault();
