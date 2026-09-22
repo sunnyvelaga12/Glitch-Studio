@@ -42,3 +42,5 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: REQUIRE_REDIS_FAIL_CLOSED
+        value: "false"

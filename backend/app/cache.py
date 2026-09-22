@@ -123,6 +123,9 @@ class SlidingWindowRateLimiter:
         settings_req = getattr(settings, "REQUIRE_REDIS_FAIL_CLOSED", None)
         if settings_req is not None:
             return bool(settings_req)
+        has_redis = bool(getattr(settings, "REDIS_URL", "") or os.getenv("REDIS_URL", ""))
+        if not has_redis:
+            return False
         env_name = (os.getenv("ENVIRONMENT") or getattr(settings, "ENVIRONMENT", "development")).lower()
         return env_name not in ("development", "dev")
 
