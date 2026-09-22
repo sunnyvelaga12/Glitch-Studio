@@ -21,7 +21,7 @@ services:
       - key: AI_PROVIDER
         value: groq
       - key: GROQ_MODEL_NAME
-        value: llama-3.3-70b-versatile
+        value: qwen/qwen3.8-27b
       - key: PINECONE_INDEX_NAME
         value: hrbot-policies-employees
       - key: PINECONE_ENVIRONMENT

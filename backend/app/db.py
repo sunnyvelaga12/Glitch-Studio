@@ -18,10 +18,18 @@ def _get_mongodb_client():
     To avoid RFC 3986 escaping issues (e.g. @ : / ? # % in usernames/passwords),
     credentials are read from separate env vars and URL-encoded.
     """
+    import asyncio
     global _client
+
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
     if _client is not None:
         try:
-            if _client.get_io_loop().is_closed():
+            client_loop = _client.get_io_loop()
+            if client_loop.is_closed() or (current_loop is not None and client_loop is not current_loop):
                 _client = None
             else:
                 return _client

@@ -404,7 +404,6 @@ async def chat_endpoint(
 
         # Log query to MongoDB with exact real employee identity
         try:
-            from app.db import get_db
             from datetime import datetime, timezone
             db = get_db()
             user_id = user.get("sub") or user.get("id")

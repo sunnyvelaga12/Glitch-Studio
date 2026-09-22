@@ -103,34 +103,46 @@ def _call_groq_chat(message: str, conversation_history: list[dict[str, str]]) ->
     
     Exponential backoff protects against rate limits and transient network issues.
     """
-    payload = {
-        "model": settings.GROQ_MODEL_NAME,
-        "messages": conversation_history,
-        "temperature": 0.0,
-        "max_tokens": 1024,
-    }
+    candidate_models = [settings.GROQ_MODEL_NAME, "qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+    seen = set()
+    models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
 
-    try:
-        client = _get_groq_client()
-        response = client.post("/chat/completions", json=payload)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        body = exc.response.text
-        if exc.response.status_code == 429:
-            raise AIRateLimitError(
-                f"GROQ rate limit exceeded. Please try again later."
-            ) from exc
-        if exc.response.status_code >= 500:
-            raise AIServiceError(
-                f"GROQ API error ({exc.response.status_code}): Server error"
-            ) from exc
-        raise AIServiceError(
-            f"GROQ API error ({exc.response.status_code})"
-        ) from exc
-    except httpx.RequestError as exc:
-        raise AIServiceError(
-            f"Unable to contact GROQ API: Connection error"
-        ) from exc
+    client = _get_groq_client()
+    last_exc = None
+    response = None
+
+    messages_payload = list(conversation_history)
+    if message and (not messages_payload or messages_payload[-1].get("role") != "user" or messages_payload[-1].get("content") != message):
+        messages_payload.append({"role": "user", "content": message})
+
+    for model_name in models_to_try:
+        payload = {
+            "model": model_name,
+            "messages": messages_payload,
+            "temperature": 0.0,
+            "max_tokens": 1024,
+        }
+        try:
+            response = client.post("/chat/completions", json=payload)
+            if response.status_code == 404:
+                logger.warning(f"Groq model '{model_name}' not found (404). Trying next fallback model...")
+                continue
+            response.raise_for_status()
+            break
+        except httpx.HTTPStatusError as exc:
+            last_exc = exc
+            if exc.response.status_code == 404:
+                continue
+            if exc.response.status_code == 429:
+                raise AIRateLimitError("GROQ rate limit exceeded. Please try again later.") from exc
+            if exc.response.status_code >= 500:
+                raise AIServiceError(f"GROQ API error ({exc.response.status_code}): Server error") from exc
+            raise AIServiceError(f"GROQ API error ({exc.response.status_code})") from exc
+        except httpx.RequestError as exc:
+            raise AIServiceError("Unable to contact GROQ API: Connection error") from exc
+
+    if response is None or not response.is_success:
+        raise AIServiceError(f"GROQ API error: all candidate models failed. Last error: {last_exc}")
 
     try:
         data = response.json()
@@ -241,19 +253,31 @@ async def stream_groq_response(
     Uses AsyncGroq client for non-blocking asynchronous streaming token deltas.
     Yields data: {"token": token}\n\n and terminates with data: [DONE]\n\n.
     """
-    target_model = model or getattr(settings, "GROQ_MODEL_NAME", "llama-3.3-70b-versatile")
-    if not target_model:
-        target_model = "llama-3.3-70b-versatile"
+    candidate_models = [model, getattr(settings, "GROQ_MODEL_NAME", None), "qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+    seen = set()
+    models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
 
     try:
         client = get_async_groq_client()
-        stream = await client.chat.completions.create(
-            model=target_model,
-            messages=messages,
-            stream=True,
-            temperature=0.0,  # Absolute zero temperature for maximum determinism
-            max_tokens=1024,
-        )
+        stream = None
+        for model_name in models_to_try:
+            try:
+                stream = await client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    stream=True,
+                    temperature=0.0,
+                    max_tokens=1024,
+                )
+                break
+            except Exception as exc:
+                if "404" in str(exc) or "not found" in str(exc).lower():
+                    logger.warning(f"Groq stream model '{model_name}' not found. Trying next fallback...")
+                    continue
+                raise exc
+
+        if stream is None:
+            raise RuntimeError("All candidate Groq models failed to create a stream.")
 
         async for chunk in stream:
             if chunk.choices and len(chunk.choices) > 0:
