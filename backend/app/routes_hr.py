@@ -18,6 +18,7 @@ import base64
 import csv
 import io
 import logging
+import re
 import secrets
 import string
 import uuid
@@ -85,143 +86,160 @@ def verify_company_access(company_id: str, user: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Flexible CSV/XLSX column normalisation
+# Flexible CSV/XLSX column normalisation & robust parsing
 # ---------------------------------------------------------------------------
+
+def _clean_header_key(col: str) -> str:
+    """Normalize a CSV header by stripping all non-alphanumeric characters."""
+    return re.sub(r"[^a-z0-9]", "", (col or "").lower())
 
 COLUMN_MAP: Dict[str, str] = {
     # Full Name variants
-    "full name": "fullName",
     "fullname": "fullName",
     "name": "fullName",
-    "employee name": "fullName",
-    "full_name": "fullName",
-    "employee_name": "fullName",
-    "contact name": "fullName",
+    "employeename": "fullName",
+    "empname": "fullName",
+    "staffname": "fullName",
+    "employee": "fullName",
+    "contactname": "fullName",
     "contact": "fullName",
-    # Split name variants (combined in _normalize_row)
-    "first_name": "firstName",
-    "first name": "firstName",
+    "candidatename": "fullName",
+    "membername": "fullName",
+    # Split name variants
     "firstname": "firstName",
-    "given name": "firstName",
-    "last_name": "lastName",
-    "last name": "lastName",
+    "fname": "firstName",
+    "givenname": "firstName",
     "lastname": "lastName",
+    "lname": "lastName",
     "surname": "lastName",
-    "family name": "lastName",
+    "familyname": "lastName",
     # Employee ID
-    "employee_id": "employeeId",
-    "employee id": "employeeId",
-    "emp id": "employeeId",
-    "emp_id": "employeeId",
+    "employeeid": "employeeId",
+    "empid": "employeeId",
+    "empcode": "employeeId",
+    "employeecode": "employeeId",
+    "staffid": "employeeId",
     "id": "employeeId",
+    "badge": "employeeId",
     # Email variants
     "email": "email",
-    "email address": "email",
+    "emailid": "email",
     "emailaddress": "email",
-    "work email": "email",
-    "e-mail": "email",
-    "e_mail": "email",
+    "mail": "email",
+    "mailid": "email",
+    "workemail": "email",
+    "corporateemail": "email",
+    "officialemail": "email",
+    "officialemailid": "email",
+    "employeeemail": "email",
+    "useremail": "email",
+    "primaryemail": "email",
     # Phone variants
     "phone": "phone",
-    "phone number": "phone",
+    "phonenumber": "phone",
     "mobile": "phone",
-    "mobile number": "phone",
-    "contact number": "phone",
-    "phone_number": "phone",
+    "mobilenumber": "phone",
+    "contactnumber": "phone",
+    "cell": "phone",
+    "telephone": "phone",
     # Role / Job title variants
     "role": "role",
-    "job title": "role",
     "jobtitle": "role",
     "title": "role",
     "position": "role",
     "designation": "role",
-    "job role": "role",
-    "job_title": "role",
+    "jobrole": "role",
+    "post": "role",
     # Department variants
     "department": "department",
     "dept": "department",
     "team": "department",
     "division": "department",
-    "business unit": "department",
+    "businessunit": "department",
     "group": "department",
+    "domain": "department",
     # Manager
-    "manager_name": "managerName",
-    "manager name": "managerName",
+    "managername": "managerName",
     "manager": "managerName",
-    "reporting manager": "managerName",
-    "reports to": "managerName",
+    "reportingmanager": "managerName",
+    "reportsto": "managerName",
+    "lead": "managerName",
+    "supervisor": "managerName",
     # Location
-    "office_location": "officeLocation",
-    "office location": "officeLocation",
+    "officelocation": "officeLocation",
     "location": "officeLocation",
     "city": "officeLocation",
     "office": "officeLocation",
+    "branch": "officeLocation",
+    "workplace": "officeLocation",
     # Work mode
-    "work_mode": "workMode",
-    "work mode": "workMode",
-    "working mode": "workMode",
+    "workmode": "workMode",
+    "workingmode": "workMode",
     "mode": "workMode",
+    "worktype": "workMode",
     # Employment status
-    "employment_status": "status",
-    "employment status": "status",
+    "employmentstatus": "status",
     "status": "status",
-    "emp status": "status",
+    "empstatus": "status",
 }
-
 
 
 def _normalize_row(raw_row: Dict[str, Any]) -> Dict[str, Any]:
     """
     Map any CSV/XLSX column name variant to our standard field names.
     Handles split first_name + last_name columns by combining them into fullName.
-    Returns a dict with keys: fullName, email, role, department (+ extras)
+    Includes smart fallbacks for email and name detection.
     """
     normalized: Dict[str, Any] = {}
 
     for raw_key, value in raw_row.items():
-        clean_key = _normalize_column_name(raw_key)
+        clean_key = _clean_header_key(raw_key)
         mapped_key = COLUMN_MAP.get(clean_key)
 
         # First match wins — don't overwrite existing normalized fields
         if mapped_key and mapped_key not in normalized:
-            # Clean string values
             if isinstance(value, str):
                 normalized[mapped_key] = value.strip()
             else:
-                normalized[mapped_key] = value if value else ""
+                normalized[mapped_key] = str(value).strip() if value else ""
 
     # Combine firstName + lastName into fullName if fullName isn't already set
-    if "fullName" not in normalized or not normalized["fullName"]:
+    if not normalized.get("fullName"):
         first = normalized.pop("firstName", "") or ""
         last = normalized.pop("lastName", "") or ""
         combined = f"{first} {last}".strip()
         if combined:
             normalized["fullName"] = combined
     else:
-        # Clean up split fields if fullName already set
         normalized.pop("firstName", None)
         normalized.pop("lastName", None)
 
-    return normalized
+    # Fallback 1: If email is missing, scan raw values for an email pattern
+    if not normalized.get("email"):
+        for val in raw_row.values():
+            m = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", str(val or ""))
+            if m:
+                normalized["email"] = m.group(0).lower().strip()
+                break
 
+    # Fallback 2: If fullName is still missing, pick first suitable string
+    if not normalized.get("fullName"):
+        for k, val in raw_row.items():
+            s = str(val or "").strip()
+            if s and s != normalized.get("email") and len(s) > 1 and not re.match(r"^\d+$", s):
+                normalized["fullName"] = s
+                break
+
+    return normalized
 
 
 def _parse_raw_rows(filename: str, raw: bytes) -> List[Dict[str, Any]]:
     """
     Parse CSV or XLSX bytes into a list of normalized header→value dicts.
-    
-    Args:
-        filename: Original filename (used to determine format)
-        raw: Raw file bytes
-    
-    Returns:
-        List of normalized row dictionaries
-    
-    Raises:
-        HTTPException: If file format is unsupported or parsing fails
+    Robust against diverse delimiters (,, ;, \\t, |) and encodings.
     """
-    fname = _normalize_column_name(filename or "")
-    
+    fname = (filename or "").strip().lower()
+
     try:
         # XLSX/XLS parsing
         if fname.endswith((".xlsx", ".xls")):
@@ -232,49 +250,63 @@ def _parse_raw_rows(filename: str, raw: bytes) -> List[Dict[str, Any]]:
                     status_code=400,
                     detail="XLSX import requires pandas. Please install it in the backend.",
                 )
-            
+
             df = pd.read_excel(io.BytesIO(raw))
             rows = []
-            
+
             for _, row in df.iterrows():
-                # Convert row to dict, handling NaN values
                 raw_row = {}
                 for col in df.columns:
                     value = row[col]
-                    if pd.isna(value):
-                        raw_row[str(col).strip()] = ""
-                    else:
-                        raw_row[str(col).strip()] = str(value).strip()
-                
+                    raw_row[str(col).strip()] = "" if pd.isna(value) else str(value).strip()
+
                 normalized = _normalize_row(raw_row)
-                if normalized.get("email"):  # Skip rows without email
+                if normalized.get("email"):
                     rows.append(normalized)
-            
+
             return rows
-        
-        # CSV parsing (default)
+
+        # CSV parsing (robust delimiter & encoding detection)
         else:
-            text = raw.decode("utf-8-sig", errors="replace")
-            reader = csv.DictReader(io.StringIO(text))
+            text = None
+            for enc in ("utf-8-sig", "utf-8", "cp1252", "iso-8859-1", "latin-1"):
+                try:
+                    text = raw.decode(enc)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if text is None:
+                text = raw.decode("utf-8", errors="replace")
+
+            # Sniff delimiter
+            first_lines = "\n".join([line for line in text.splitlines()[:5] if line.strip()])
+            delimiter = ","
+            try:
+                dialect = csv.Sniffer().sniff(first_lines, delimiters=",;\t|")
+                delimiter = dialect.delimiter
+            except Exception:
+                if ";" in first_lines and "," not in first_lines:
+                    delimiter = ";"
+                elif "\t" in first_lines:
+                    delimiter = "\t"
+                elif "|" in first_lines:
+                    delimiter = "|"
+
+            reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
             rows = []
-            
+
             for row in reader:
-                # Filter out empty keys and normalize
                 raw_row = {k.strip(): (v or "").strip() for k, v in row.items() if k and k.strip()}
                 normalized = _normalize_row(raw_row)
-                if normalized.get("email"):  # Skip rows without email
+                if normalized.get("email"):
                     rows.append(normalized)
-            
+
             return rows
-    
-    except UnicodeDecodeError as e:
-        logger.error(f"Failed to decode file {filename}: {e}")
-        raise HTTPException(
-            status_code=400,
-            detail="Unable to read file. Please ensure it's a valid CSV or XLSX file.",
-        )
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to parse file {filename}: {e}")
+        logger.error(f"Failed to parse file {filename}: {e}", exc_info=True)
         raise HTTPException(
             status_code=400,
             detail=f"Failed to parse file: {str(e)}",

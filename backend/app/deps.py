@@ -30,16 +30,16 @@ def extract_token_from_request(
     Returns:
         (token: str, auth_source: "cookie" | "bearer")
     """
-    # 1. Check HttpOnly cookie
-    cookie_token = request.cookies.get(settings.COOKIE_NAME)
-    if cookie_token:
-        return cookie_token, "cookie"
-
-    # 2. Check Authorization Bearer header fallback
+    # 1. Check Authorization Bearer header FIRST (active SPA token)
     if authorization:
         parts = authorization.split(" ")
         if len(parts) == 2 and parts[0].lower() == "bearer":
             return parts[1], "bearer"
+
+    # 2. Check HttpOnly cookie fallback
+    cookie_token = request.cookies.get(settings.COOKIE_NAME)
+    if cookie_token:
+        return cookie_token, "cookie"
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
