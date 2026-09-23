@@ -20,6 +20,17 @@ class BaseEmailService(abc.ABC):
         """Send password reset notification with a secure reset token link."""
         pass
 
+    @abc.abstractmethod
+    async def send_employee_invite(
+        self,
+        recipient_email: str,
+        recipient_name: str,
+        company_name: str,
+        temp_password: str,
+    ) -> bool:
+        """Send invitation email with temporary credentials to newly imported employee."""
+        pass
+
 
 class ConsoleEmailService(BaseEmailService):
     """
@@ -35,6 +46,20 @@ class ConsoleEmailService(BaseEmailService):
         )
         return True
 
+    async def send_employee_invite(
+        self,
+        recipient_email: str,
+        recipient_name: str,
+        company_name: str,
+        temp_password: str,
+    ) -> bool:
+        masked_pw = f"{temp_password[:2]}***{temp_password[-2:]}" if len(temp_password) > 4 else "***"
+        logger.info(
+            f"[DEV EMAIL SERVICE] Welcome invitation dispatched to '{recipient_name}' <{recipient_email}> "
+            f"for company '{company_name}'. Temporary password (masked: {masked_pw})."
+        )
+        return True
+
 
 class ProductionEmailService(BaseEmailService):
     """
@@ -47,8 +72,22 @@ class ProductionEmailService(BaseEmailService):
         logger.info(f"[PROD EMAIL SERVICE] Dispatched password reset email to {recipient_email}")
         return True
 
+    async def send_employee_invite(
+        self,
+        recipient_email: str,
+        recipient_name: str,
+        company_name: str,
+        temp_password: str,
+    ) -> bool:
+        logger.info(
+            f"[PROD EMAIL SERVICE] Dispatched welcome invitation to '{recipient_name}' <{recipient_email}> "
+            f"for company '{company_name}'."
+        )
+        return True
+
 
 def get_email_service() -> BaseEmailService:
     if settings.is_development:
         return ConsoleEmailService()
     return ProductionEmailService()
+

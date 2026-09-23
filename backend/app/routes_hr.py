@@ -23,7 +23,10 @@ import secrets
 import string
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from app.config import settings
 
 from fastapi import (
     APIRouter,
@@ -63,6 +66,12 @@ router = APIRouter(prefix="/api/hr", tags=["HR"])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _gen_temp_password(length: int = 12) -> str:
+    """Generate a secure, random temporary password for newly imported employees."""
+    chars = string.ascii_letters + string.digits + "!@#$%^&*"
+    return "".join(secrets.choice(chars) for _ in range(length))
+
 
 def _normalize_column_name(column: str) -> str:
     """Normalize a single column name to its standard form."""
@@ -1272,6 +1281,7 @@ async def import_employees(
     now = datetime.now(timezone.utc).isoformat()
     
     # Process each row
+    invited_employees = []
     for row in all_rows:
         emp = _row_to_employee(row)
         email = emp["email"]
@@ -1295,8 +1305,10 @@ async def import_employees(
             "jobTitle": emp["role_title"],
             "department": emp["department"],
             "companyId": company_id,
+            "company_id": company_id,
             "tempPassword": temp_password,  # Stored until first login
             "updatedAt": now,
+            "updated_at": now,
             # Extra fields from expanded CSV columns
             "employeeId": emp.get("employeeId", ""),
             "phone": emp.get("phone", ""),
@@ -1309,7 +1321,7 @@ async def import_employees(
         # Check if employee already exists
         existing = await db.users.find_one({
             "email": email,
-            "companyId": company_id,
+            "$or": [{"companyId": company_id}, {"company_id": company_id}],
         })
         
         if existing:
@@ -1319,6 +1331,8 @@ async def import_employees(
                     k: v for k, v in employee_data.items()
                     if k not in ("passwordHash", "tempPassword")
                 }
+                update_fields["company_id"] = company_id
+                update_fields["updated_at"] = now
                 await db.users.update_one(
                     {"_id": existing["_id"]},
                     {"$set": update_fields},
@@ -1327,21 +1341,50 @@ async def import_employees(
             else:
                 results.skipped += 1
         else:
-            # Create new employee
+            # Create new employee with UUID, tenant identifiers, and default leave balances
+            user_id = str(uuid.uuid4())
+            employee_data["_id"] = user_id
+            employee_data["id"] = user_id
             employee_data["createdAt"] = now
+            employee_data["created_at"] = now
+            employee_data["tokenVersion"] = 1
+            employee_data["token_version"] = 1
+            employee_data["isActive"] = True
+            employee_data["is_active"] = True
+            employee_data["leave_balances"] = {
+                "casual_leave": {"allocated": 12, "used": 0, "pending": 0, "available": 12},
+                "sick_leave": {"allocated": 10, "used": 0, "pending": 0, "available": 10},
+                "privilege_leave": {"allocated": 15, "used": 0, "pending": 0, "available": 15},
+            }
             await db.users.insert_one(employee_data)
             results.created += 1
+            invited_employees.append({
+                "email": email,
+                "name": full_name,
+                "temp_password": temp_password,
+            })
         
         # Employee record saved to MongoDB
 
-    
     # Handle email invites
-    if sendInvites:
-        total_invites = results.created + results.updated
+    if sendInvites and invited_employees:
         email_svc = get_email_service()
+        company_doc = await db.companies.find_one({"$or": [{"_id": company_id}, {"id": company_id}]})
+        company_name = (company_doc.get("name") if company_doc else None) or company_id
+        for inv in invited_employees:
+            try:
+                await email_svc.send_employee_invite(
+                    recipient_email=inv["email"],
+                    recipient_name=inv["name"],
+                    company_name=company_name,
+                    temp_password=inv["temp_password"],
+                )
+            except Exception as mail_err:
+                logger.warning(f"Failed to dispatch invite email to {inv['email']}: {mail_err}")
+
         logger.info(
-            f"Dispatched email invite queue via {email_svc.__class__.__name__} "
-            f"for {total_invites} employees in company {company_id}"
+            f"Dispatched email invites via {email_svc.__class__.__name__} "
+            f"for {len(invited_employees)} employees in company {company_id}"
         )
     
     logger.info(
