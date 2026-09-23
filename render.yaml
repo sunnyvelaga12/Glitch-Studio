@@ -34,6 +34,8 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
+      - key: JWT_EXP_MINUTES
+        value: "10080"
       - key: PROMETHEUS_METRICS_TOKEN
         generateValue: true
       - key: GROQ_API_KEY

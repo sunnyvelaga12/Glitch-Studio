@@ -75,7 +75,18 @@ async function apiFetch(url: string, opts: RequestInit = {}) {
   const res = await fetch(url, { ...opts, headers: { ...(opts.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
   const ct = res.headers.get("content-type") || "";
   const data = ct.includes("application/json") ? await res.json() : await res.text();
-  if (!res.ok) throw new Error(typeof data === "string" ? data : (data?.detail ?? data?.error ?? "Request failed"));
+  if (!res.ok) {
+    if (res.status === 401) {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("token");
+        setTimeout(() => {
+          window.location.href = "/login?expired=1";
+        }, 1800);
+      }
+      throw new Error("Your session has expired. Redirecting to login...");
+    }
+    throw new Error(typeof data === "string" ? data : (data?.detail ?? data?.error ?? "Request failed"));
+  }
   return data;
 }
 

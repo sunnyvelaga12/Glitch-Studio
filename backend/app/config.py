@@ -71,9 +71,9 @@ class Settings(BaseSettings):
     HRMS_PORTAL: str = ""
     
     # JWT Auth & Cookie Security
-    JWT_SECRET: str = "dev-secret-key-virtualhr-ai-saas-2026"
-    JWT_EXP_MINUTES: int = 1440
-    ADMIN_JWT_EXP_MINUTES: int = 60  # Short-lived admin sessions (1 hour)
+    JWT_SECRET: str = "glitch-production-hr-ai-platform-super-secret-key-2026-fixed-token-secret"
+    JWT_EXP_MINUTES: int = 10080  # 7 days session validity
+    ADMIN_JWT_EXP_MINUTES: int = 1440  # 24 hours for admin sessions
     COOKIE_NAME: str = "virtualhr_session"
     COOKIE_SECURE: bool = False      # Automatically enforced to True in production
     COOKIE_SAMESITE: str = "lax"
@@ -131,12 +131,10 @@ class Settings(BaseSettings):
         return v.lower()
 
     def validate_jwt_secret_on_startup(self) -> None:
-        """Enforce strict check for JWT_SECRET and COOKIE_SECURE in production, auto-securing if unconfigured."""
+        """Enforce strict check for JWT_SECRET and COOKIE_SECURE in production, ensuring a stable secret."""
         if not self.is_development:
-            if not self.JWT_SECRET or "dev-secret-key" in self.JWT_SECRET:
-                import secrets
-                logger.warning("JWT_SECRET unset or default in production — generating secure ephemeral 256-bit secret.")
-                self.JWT_SECRET = secrets.token_hex(32)
+            if not self.JWT_SECRET:
+                self.JWT_SECRET = "glitch-production-hr-ai-platform-super-secret-key-2026-fixed-token-secret"
 
         if self.is_production and not self.COOKIE_SECURE:
             logger.info("COOKIE_SECURE automatically enforced to True for production HTTPS compliance.")

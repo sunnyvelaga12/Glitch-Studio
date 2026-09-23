@@ -50,6 +50,9 @@ export default function LoginPage() {
   // Pre-warm the backend immediately upon page load to spin up cloud instance if asleep
   useEffect(() => {
     fetch(`${BACKEND_URL}/health/liveness`, { cache: "no-store" }).catch(() => {});
+    if (typeof window !== "undefined" && window.location.search.includes("expired=1")) {
+      setError("Your session has expired. Please sign in again.");
+    }
   }, []);
 
   const isAdmin = role === "hr_admin";
