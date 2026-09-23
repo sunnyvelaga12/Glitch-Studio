@@ -196,7 +196,7 @@ function DropZone({ accept, label, onFile, file, icon }: { accept: string; label
         transition: "all 0.2s",
       }}
     >
-      <input ref={ref} type="file" accept={accept} style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
+      <input ref={ref} type="file" accept={accept} style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} />
       <div style={{ marginBottom: 6 }}>
         <Icon name={file ? "check_circle" : icon} size={32} color={file ? T.emerald : T.indigo} />
       </div>
