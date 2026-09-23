@@ -638,7 +638,7 @@ function EmployeesTab({ companyId }: { companyId: string }) {
           {previewErr && <ErrBanner msg={previewErr} onClose={() => setPreviewErr(null)} />}
           {importErr && <ErrBanner msg={importErr} onClose={() => setImportErr(null)} />}
           {importResult && <SuccessBanner msg={`Import complete — Created: ${importResult.created} | Updated: ${importResult.updated} | Skipped: ${importResult.skipped}`} />}
-          <DropZone accept=".csv,.xlsx,.xls" label="CSV or Excel — drag & drop or click to browse" onFile={handlePreview} file={csvFile} icon="table_chart" />
+          <DropZone accept=".csv,.xlsx,.xls,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" label="CSV or Excel (.csv, .xlsx) — drag & drop or click to browse" onFile={handlePreview} file={csvFile} icon="table_chart" />
           {previewLoading && <div style={{ display: "flex", justifyContent: "center", padding: 16 }}><Spinner /></div>}
           {preview && preview.length > 0 && (
             <div>
