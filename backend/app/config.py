@@ -106,7 +106,8 @@ class Settings(BaseSettings):
     # ClamAV Antivirus Daemon Settings
     CLAMAV_HOST: str = "localhost"
     CLAMAV_PORT: int = 3310
-    CLAMAV_ENABLED: bool = True
+    CLAMAV_ENABLED: bool = False
+    CLAMAV_FAIL_CLOSED: bool = False
 
     # Logging
     LOG_LEVEL: str = "INFO"

@@ -46,3 +46,5 @@ services:
         sync: false
       - key: REQUIRE_REDIS_FAIL_CLOSED
         value: "false"
+      - key: CLAMAV_ENABLED
+        value: "false"
