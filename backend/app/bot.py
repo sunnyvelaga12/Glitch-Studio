@@ -207,39 +207,63 @@ def construct_hr_system_prompt(
     disclaimer_required: bool = False,
 ) -> str:
     """
-    Constructs a heavily grounded system prompt integrating real-time DB state and retrieved context.
-    Enforces Zero Hallucination, Mandatory Inline Citations, and Strict Refusals.
+    Constructs a heavily grounded, ChatGPT-grade system prompt integrating real-time DB state and retrieved context.
+    Enforces Zero Hallucination, Mandatory Inline Citations, and Polished Conversational Prose.
     """
     emp = employee_state or {}
-    emp_name = emp.get("name") or emp.get("fullName") or "Employee"
+    emp_name = emp.get("full_name") or emp.get("fullName") or emp.get("name") or "Employee"
+    emp_id = emp.get("employee_id") or emp.get("employeeId") or "EMP001"
+    dept = emp.get("department", "Engineering")
+    role_title = emp.get("designation") or emp.get("jobTitle") or "Team Member"
+    manager = emp.get("manager_name") or emp.get("manager") or "Reporting Manager"
+    work_mode = emp.get("work_mode") or emp.get("workMode") or "Remote"
+    office_loc = emp.get("office_location") or emp.get("officeLocation") or "Hyderabad"
+
     balances = emp.get("leave_balance") or emp.get("leave_balances") or {}
-    casual_bal = balances.get("casual", balances.get("casual_leave", 12))
-    sick_bal = balances.get("sick", balances.get("sick_leave", 10))
-    manager = emp.get("manager_name") or emp.get("manager") or "Line Manager"
+    casual_bal = balances.get("casual_leave_remaining", balances.get("casual", 12))
+    casual_tot = balances.get("casual_leave_total", 12)
+    sick_bal = balances.get("sick_leave_remaining", balances.get("sick", 10))
+    sick_tot = balances.get("sick_leave_total", 10)
+    priv_bal = balances.get("privilege_leave_remaining", balances.get("privilege", 15))
+    priv_tot = balances.get("privilege_leave_total", 20)
+    float_bal = balances.get("floating_holidays_remaining", balances.get("floating", 3))
 
     disclaimer_instruction = ""
     if disclaimer_required:
         disclaimer_instruction = (
             "\n4. MODERATE RELEVANCE NOTICE: The retrieved context is moderately related. "
-            "You MUST append the following sentence at the very end of your response: "
-            "\"*This appears related, but please verify with HR.*\""
+            "Please conclude your answer with: \"*This appears related, but please verify with HR.*\""
         )
 
-    return f"""You are the official HR Executive Assistant for this organization. 
-Your singular operational directive is to answer employee queries strictly based on the provided policy documents and the employee's real-time HR profile.
+    return f"""You are the official HR AI Assistant for this organization.
+Your mission is to deliver ChatGPT-grade, articulate, beautifully structured, and accurate HR guidance based strictly on the authoritative policy documents and the logged-in employee's real-time company record.
 
-CRITICAL DIRECTIVES:
-1. ZERO HALLUCINATION: If the provided policy documents do not explicitly contain the answer, you are forbidden from guessing. You must output EXACTLY: "I cannot find this information in the current HR policies."
-2. MANDATORY CITATION: Every factual claim must include an inline citation in the format [Source: <Policy_Name>, Section <Header>].
-3. STRICT REFUSAL: You are prohibited from answering queries regarding salary adjustments, confidential payroll data of other employees, or legal disputes.{disclaimer_instruction}
+RESPONSE STYLE & COMMUNICATION STANDARDS (ChatGPT-Style Excellence):
+1. DIRECT ANSWER FIRST: Begin immediately with a clear, concise, and direct answer to the user's question in natural, friendly prose. Do not stall or repeat their question back to them.
+2. ELEGANT STRUCTURE:
+   - Use clean Markdown headers (### Summary, ### Key Guidelines, ### Approval Workflow) to break up concepts.
+   - Use concise bullet points with **bold lead-ins** for effortless scanning.
+   - Use clean Markdown tables whenever comparing figures, leave days, timelines, expense caps, or office hours.
+3. CONTEXTUAL INTELLIGENCE (Personalized vs. Universal):
+   - PERSONALIZED QUERIES (Leave balances, time-off requests, manager sign-offs, WFH/remote eligibility, appraisals):
+     Naturally personalize the response using the employee's real profile (e.g., greet {emp_name}, reference their manager {manager}, cite their {casual_bal} remaining Casual Leaves, or address their {dept} department).
+   - UNIVERSAL POLICIES (Dress code, core office hours, company holidays, travel reimbursement, medical insurance terms):
+     Answer with crisp, authoritative company guidelines directly from the policy documents without forcing awkward personal references.
+4. ACTIONABLE GUIDANCE: Where relevant, guide the employee on exact next steps (e.g., "You can submit this request in the Leaves tab above for {manager}'s review.").
+5. ACCURACY & INTEGRITY:
+   - ZERO HALLUCINATION: If the policy documents do not contain the answer, politely state: "I cannot find this information in the current HR policies."
+   - Every factual rule must cite the source policy (e.g., [Source: HR Policy Manual]).
+   - Strictly refuse inquiries about other employees' private salaries or confidential data.{disclaimer_instruction}
 
-EMPLOYEE REAL-TIME PROFILE (Contextual Data):
-- Employee Name: {emp_name}
-- Casual Leave Balance: {casual_bal} days
-- Sick Leave Balance: {sick_bal} days
-- Manager: {manager}
+LOGGED-IN EMPLOYEE PROFILE (Real-Time Database Context):
+- Name: {emp_name}
+- Employee Code: {emp_id}
+- Department: {dept} | Designation: {role_title}
+- Reporting Manager: {manager}
+- Work Mode: {work_mode} | Location: {office_loc}
+- Personal Leave Balances: {casual_bal} Casual (of {casual_tot}), {sick_bal} Sick (of {sick_tot}), {priv_bal} Privilege (of {priv_tot}), {float_bal} Floating Holidays
 
-RETRIEVED POLICY DOCUMENTS (Authoritative Source):
+AUTHORITATIVE POLICY DOCUMENTS:
 {retrieved_context}
 """
 

@@ -74,23 +74,26 @@ async def get_my_profile(
         office_loc = (u_doc.get("officeLocation") if u_doc else None) or "Main Office"
         mode = (u_doc.get("workMode") if u_doc else None) or "Hybrid"
 
+        emp_code = (u_doc.get("employeeId") if u_doc else None) or (str(user_id) if user_id else "EMP001")
+        join_date = (u_doc.get("date_of_joining") if u_doc else None) or (u_doc.get("createdAt", "")[:10] if u_doc and u_doc.get("createdAt") else "2024-01-15")
+
         return {
-            "employee_id": str(user_id) if user_id else "EMP001",
+            "employee_id": emp_code,
             "first_name": first_name,
             "last_name": last_name,
             "email": email or "employee@company.com",
-            "phone": (u_doc.get("phone") if u_doc else None) or "+1-234-567-8900",
+            "phone": (u_doc.get("phone") if u_doc else None) or "+91-98765-43210",
             "department": dept,
             "designation": title,
             "manager_name": manager,
             "office_location": office_loc,
             "work_mode": mode,
-            "employment_status": "Active",
-            "years_with_company": 2,
-            "performance_rating": 4.8,
-            "skills": ["Python", "React", "AI", "Cloud"],
-            "certifications": ["Certified Developer"],
-            "date_of_joining": "2024-01-15",
+            "employment_status": (u_doc.get("employmentStatus") if u_doc else "Active") or "Active",
+            "years_with_company": (u_doc.get("years_with_company") if u_doc and "years_with_company" in u_doc else 2),
+            "performance_rating": (u_doc.get("performance_rating") if u_doc and "performance_rating" in u_doc else 4.8),
+            "skills": (u_doc.get("skills") if u_doc and u_doc.get("skills") else ["Python", "React", "AI", "Cloud"]),
+            "certifications": (u_doc.get("certifications") if u_doc and u_doc.get("certifications") else ["Certified Developer"]),
+            "date_of_joining": join_date,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching profile: {str(e)}")
@@ -113,7 +116,6 @@ async def get_employee_profile(
     if not u_doc and ObjectId.is_valid(employee_id):
         u_doc = await mongo_db.users.find_one({"_id": ObjectId(employee_id), **c_filter})
 
-    
     if not u_doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -126,7 +128,7 @@ async def get_employee_profile(
     last_name = parts[1] if len(parts) > 1 else ""
 
     return {
-        "employee_id": str(u_doc.get("_id")),
+        "employee_id": u_doc.get("employeeId") or str(u_doc.get("_id")),
         "first_name": first_name,
         "last_name": last_name,
         "email": u_doc.get("email", ""),
@@ -155,20 +157,52 @@ async def get_leave_balance(
 ):
     """Get employee's leave balance."""
     try:
+        mongo_db = get_db()
+        from bson import ObjectId
+        u_doc = await mongo_db.users.find_one({"_id": employee_id})
+        if not u_doc and ObjectId.is_valid(employee_id):
+            u_doc = await mongo_db.users.find_one({"_id": ObjectId(employee_id)})
+        
+        lb_balances = (u_doc.get("leave_balances") if u_doc else {}) or {}
+        lb_summary = (u_doc.get("leave_balance") if u_doc else {}) or {}
+
+        cl = lb_balances.get("casual_leave", {})
+        sl = lb_balances.get("sick_leave", {})
+        pl = lb_balances.get("privilege_leave", {})
+
+        cl_total = cl.get("allocated", lb_summary.get("casual_leave_total", 12))
+        cl_used = cl.get("used", 0)
+        cl_pending = cl.get("pending", 0)
+        cl_rem = max(0, cl_total - cl_used - cl_pending)
+
+        sl_total = sl.get("allocated", lb_summary.get("sick_leave_total", 10))
+        sl_used = sl.get("used", 0)
+        sl_pending = sl.get("pending", 0)
+        sl_rem = max(0, sl_total - sl_used - sl_pending)
+
+        pl_total = pl.get("allocated", lb_summary.get("privilege_leave_total", 15))
+        pl_used = pl.get("used", 0)
+        pl_pending = pl.get("pending", 0)
+        pl_rem = max(0, pl_total - pl_used - pl_pending)
+
+        fl_total = lb_summary.get("floating_holidays_total", 5)
+        fl_rem = lb_summary.get("floating_holidays_remaining", 5)
+        fl_used = max(0, fl_total - fl_rem)
+
         return {
-            "employee_id": employee_id,
-            "casual_leave_total": 12,
-            "casual_leave_used": 3,
-            "casual_leave_remaining": 9,
-            "sick_leave_total": 10,
-            "sick_leave_used": 2,
-            "sick_leave_remaining": 8,
-            "privilege_leave_total": 20,
-            "privilege_leave_used": 5,
-            "privilege_leave_remaining": 15,
-            "floating_holidays_total": 5,
-            "floating_holidays_used": 2,
-            "floating_holidays_remaining": 3,
+            "employee_id": (u_doc.get("employeeId") if u_doc else None) or employee_id,
+            "casual_leave_total": cl_total,
+            "casual_leave_used": cl_used,
+            "casual_leave_remaining": cl_rem,
+            "sick_leave_total": sl_total,
+            "sick_leave_used": sl_used,
+            "sick_leave_remaining": sl_rem,
+            "privilege_leave_total": pl_total,
+            "privilege_leave_used": pl_used,
+            "privilege_leave_remaining": pl_rem,
+            "floating_holidays_total": fl_total,
+            "floating_holidays_used": fl_used,
+            "floating_holidays_remaining": fl_rem,
             "last_updated": datetime.now().isoformat(),
         }
     except Exception as e:
@@ -179,23 +213,65 @@ async def get_leave_balance(
 async def get_my_leave_balance(
     current_user = Depends(get_current_user),
 ):
-    """Get current user's leave balance."""
-    employee_id = current_user.get("employee_id", "EMP001")
+    """Get current user's live leave balance from MongoDB."""
     try:
+        user_id = current_user.get("sub") or current_user.get("id") or current_user.get("user_id")
+        user_email = current_user.get("email", "")
+        company_id = current_user.get("company_id") or current_user.get("companyId")
+        
+        mongo_db = get_db()
+        c_filter = {"company_id": company_id} if company_id else {}
+        from bson import ObjectId
+        u_doc = None
+        if user_id:
+            u_doc = await mongo_db.users.find_one({"_id": user_id, **c_filter})
+            if not u_doc and ObjectId.is_valid(user_id):
+                u_doc = await mongo_db.users.find_one({"_id": ObjectId(user_id), **c_filter})
+        if not u_doc and user_email:
+            u_doc = await mongo_db.users.find_one({"email": user_email, **c_filter})
+
+        lb_balances = (u_doc.get("leave_balances") if u_doc else {}) or {}
+        lb_summary = (u_doc.get("leave_balance") if u_doc else {}) or {}
+
+        cl = lb_balances.get("casual_leave", {})
+        sl = lb_balances.get("sick_leave", {})
+        pl = lb_balances.get("privilege_leave", {})
+
+        cl_total = cl.get("allocated", lb_summary.get("casual_leave_total", 12))
+        cl_used = cl.get("used", 0)
+        cl_pending = cl.get("pending", 0)
+        cl_rem = max(0, cl_total - cl_used - cl_pending)
+
+        sl_total = sl.get("allocated", lb_summary.get("sick_leave_total", 10))
+        sl_used = sl.get("used", 0)
+        sl_pending = sl.get("pending", 0)
+        sl_rem = max(0, sl_total - sl_used - sl_pending)
+
+        pl_total = pl.get("allocated", lb_summary.get("privilege_leave_total", 15))
+        pl_used = pl.get("used", 0)
+        pl_pending = pl.get("pending", 0)
+        pl_rem = max(0, pl_total - pl_used - pl_pending)
+
+        fl_total = lb_summary.get("floating_holidays_total", 5)
+        fl_rem = lb_summary.get("floating_holidays_remaining", 5)
+        fl_used = max(0, fl_total - fl_rem)
+
+        emp_code = (u_doc.get("employeeId") if u_doc else None) or str(user_id or "EMP001")
+
         return {
-            "employee_id": employee_id,
-            "casual_leave_total": 12,
-            "casual_leave_used": 3,
-            "casual_leave_remaining": 9,
-            "sick_leave_total": 10,
-            "sick_leave_used": 2,
-            "sick_leave_remaining": 8,
-            "privilege_leave_total": 20,
-            "privilege_leave_used": 5,
-            "privilege_leave_remaining": 15,
-            "floating_holidays_total": 5,
-            "floating_holidays_used": 2,
-            "floating_holidays_remaining": 3,
+            "employee_id": emp_code,
+            "casual_leave_total": cl_total,
+            "casual_leave_used": cl_used,
+            "casual_leave_remaining": cl_rem,
+            "sick_leave_total": sl_total,
+            "sick_leave_used": sl_used,
+            "sick_leave_remaining": sl_rem,
+            "privilege_leave_total": pl_total,
+            "privilege_leave_used": pl_used,
+            "privilege_leave_remaining": pl_rem,
+            "floating_holidays_total": fl_total,
+            "floating_holidays_used": fl_used,
+            "floating_holidays_remaining": fl_rem,
             "last_updated": datetime.now().isoformat(),
         }
     except Exception as e:

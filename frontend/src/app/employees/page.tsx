@@ -21,11 +21,11 @@ function Icon({ name, size = 20, color, style, className = "" }: { name: string;
 }
 
 const TAB_LABELS: Record<Tab, { label: string; icon: string }> = {
-  overview:   { label: "Overview",        icon: "analytics" },
-  attendance: { label: "Attendance",      icon: "schedule" },
-  leaves:     { label: "Leaves",          icon: "event_available" },
-  profile:    { label: "My Profile",      icon: "person" },
-  chatbot:    { label: "AI Policy Assist",icon: "auto_awesome" },
+  overview: { label: "Overview", icon: "analytics" },
+  attendance: { label: "Attendance", icon: "schedule" },
+  leaves: { label: "Leaves", icon: "event_available" },
+  profile: { label: "My Profile", icon: "person" },
+  chatbot: { label: "AI Policy Assist", icon: "auto_awesome" },
 };
 
 interface EmployeeProfile {
@@ -43,21 +43,21 @@ interface AttendanceRecord { date: string; status: string; hours_worked: number;
 
 // ─── Design tokens (Google / Microsoft / Zoho Enterprise Palette) ───────────────
 const T = {
-  pageBg:       "#f8fafd",
-  cardBg:       "#ffffff",
-  cardBorder:   "#dadce0",
-  inputBg:      "#f1f3f4",
-  mutedBg:      "#f8f9fa",
-  accentBg:     "#e8f0fe",
-  textPrimary:  "#1f1f1f",
-  textSecondary:"#444746",
-  textMuted:    "#727775",
-  indigo:       "#0b57d0",
-  blue:         "#1a73e8",
-  emerald:      "#1e8e3e",
-  amber:        "#f9ab00",
-  rose:         "#d93025",
-  primaryGrad:  "linear-gradient(135deg,#1a73e8 0%,#0b57d0 100%)",
+  pageBg: "#f8fafd",
+  cardBg: "#ffffff",
+  cardBorder: "#dadce0",
+  inputBg: "#f1f3f4",
+  mutedBg: "#f8f9fa",
+  accentBg: "#e8f0fe",
+  textPrimary: "#1f1f1f",
+  textSecondary: "#444746",
+  textMuted: "#727775",
+  indigo: "#0b57d0",
+  blue: "#1a73e8",
+  emerald: "#1e8e3e",
+  amber: "#f9ab00",
+  rose: "#d93025",
+  primaryGrad: "linear-gradient(135deg,#1a73e8 0%,#0b57d0 100%)",
 };
 
 // ─── Quick Queries ─────────────────────────────────────────────────────────────
@@ -65,12 +65,12 @@ type Topic = "all" | "leave" | "wfh" | "expenses" | "attendance" | "appraisal" |
 interface QuickQuery { label: string; icon: string; topic: Topic; query: string; }
 
 const QUICK_QUERIES: QuickQuery[] = [
-  { label: "Leave Entitlements", icon: "event_note",      topic: "leave",      query: "What are the different leave categories and how many days am I entitled to?" },
-  { label: "WFH Eligibility",    icon: "home_work",       topic: "wfh",        query: "What is the work-from-home policy and who is eligible?" },
-  { label: "Expense Submission", icon: "receipt_long",    topic: "expenses",   query: "How do I submit an expense claim and what expenses are covered?" },
-  { label: "Office Timings",     icon: "schedule",        topic: "attendance", query: "What are the office timings, core hours, and late arrival policy?" },
-  { label: "Performance Rating", icon: "trending_up",     topic: "appraisal",  query: "How does the annual appraisal work and what are the rating guidelines?" },
-  { label: "Dress Code Guide",   icon: "checkroom",        topic: "conduct",    query: "What is the dress code for regular days and client visits?" },
+  { label: "Leave Entitlements", icon: "event_note", topic: "leave", query: "What are the different leave categories and how many days am I entitled to?" },
+  { label: "WFH Eligibility", icon: "home_work", topic: "wfh", query: "What is the work-from-home policy and who is eligible?" },
+  { label: "Expense Submission", icon: "receipt_long", topic: "expenses", query: "How do I submit an expense claim and what expenses are covered?" },
+  { label: "Office Timings", icon: "schedule", topic: "attendance", query: "What are the office timings, core hours, and late arrival policy?" },
+  { label: "Performance Rating", icon: "trending_up", topic: "appraisal", query: "How does the annual appraisal work and what are the rating guidelines?" },
+  { label: "Dress Code Guide", icon: "checkroom", topic: "conduct", query: "What is the dress code for regular days and client visits?" },
 ];
 
 const INITIAL_MESSAGE: Message = {
@@ -87,15 +87,22 @@ function Spinner({ size = 20 }: { size?: number }) {
   return <div style={{ width: size, height: size, borderRadius: "50%", border: "2.5px solid #e0e7ff", borderTopColor: T.indigo, animation: "spin 0.8s linear infinite", flexShrink: 0 }} />;
 }
 
-// ─── Markdown Renderer ─────────────────────────────────────────────────────────
-function FormattedChatMarkdown({ content }: { content: string }) {
+// ─── Markdown Renderer (ChatGPT-Grade Typography & Layout) ────────────────────
+function FormattedChatMarkdown({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [rating, setRating] = useState<"up" | "down" | null>(null);
 
   const renderText = (text: string) =>
-    text.split(/(\*\*.*?\*\*|`.*?`)/g).map((part, i) => {
-      if (part.startsWith("**") && part.endsWith("**")) return <strong key={i} style={{ color: T.textPrimary, fontWeight: 700 }}>{part.slice(2, -2)}</strong>;
-      if (part.startsWith("`") && part.endsWith("`")) return <code key={i} style={{ background: "#eef2ff", color: T.indigo, padding: "1px 6px", borderRadius: 4, fontSize: "0.9em", fontFamily: "monospace" }}>{part.slice(1, -1)}</code>;
+    text.split(/(\*\*.*?\*\*|`.*?`|\*.*?\*)/g).map((part, i) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return <strong key={i} style={{ color: "#111827", fontWeight: 700 }}>{part.slice(2, -2)}</strong>;
+      }
+      if (part.startsWith("`") && part.endsWith("`")) {
+        return <code key={i} style={{ background: "#f1f5f9", color: "#0b57d0", padding: "2px 6px", borderRadius: 5, fontSize: "0.88em", fontFamily: "ui-monospace, monospace", fontWeight: 600 }}>{part.slice(1, -1)}</code>;
+      }
+      if (part.startsWith("*") && part.endsWith("*") && !part.startsWith("**")) {
+        return <em key={i} style={{ color: "#475569" }}>{part.slice(1, -1)}</em>;
+      }
       return part;
     });
 
@@ -107,15 +114,25 @@ function FormattedChatMarkdown({ content }: { content: string }) {
     const flushTable = (key: number) => {
       if (!tableHeader.length) return;
       elements.push(
-        <div key={`t-${key}`} style={{ overflowX: "auto", borderRadius: 10, border: `1px solid ${T.cardBorder}`, margin: "8px 0" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead style={{ background: T.mutedBg }}>
-              <tr>{tableHeader.map((h, i) => <th key={i} style={{ padding: "8px 12px", textAlign: "left", color: T.textSecondary, fontWeight: 700 }}>{renderText(h.trim())}</th>)}</tr>
+        <div key={`t-${key}`} style={{ overflowX: "auto", borderRadius: 12, border: "1px solid #e2e8f0", margin: "14px 0", background: "#ffffff", boxShadow: "0 1px 3px rgba(0,0,0,0.03)" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
+            <thead style={{ background: "#f8fafc", borderBottom: "1.5px solid #e2e8f0" }}>
+              <tr>
+                {tableHeader.map((h, i) => (
+                  <th key={i} style={{ padding: "10px 14px", color: "#334155", fontWeight: 700, fontSize: 12.5, letterSpacing: "0.01em" }}>
+                    {renderText(h.trim())}
+                  </th>
+                ))}
+              </tr>
             </thead>
             <tbody>
               {tableRows.map((row, ri) => (
-                <tr key={ri} style={{ borderTop: "1px solid #f1f5f9" }}>
-                  {row.map((cell, ci) => <td key={ci} style={{ padding: "8px 12px", color: T.textSecondary }}>{renderText(cell.trim())}</td>)}
+                <tr key={ri} style={{ borderTop: "1px solid #f1f5f9", background: ri % 2 === 1 ? "#fafcfd" : "#ffffff" }}>
+                  {row.map((cell, ci) => (
+                    <td key={ci} style={{ padding: "10px 14px", color: "#475569", lineHeight: 1.5 }}>
+                      {renderText(cell.trim())}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
@@ -127,6 +144,8 @@ function FormattedChatMarkdown({ content }: { content: string }) {
 
     lines.forEach((line, idx) => {
       const t = line.trim();
+
+      // Markdown Tables
       if (t.startsWith("|") && t.endsWith("|")) {
         const cells = t.split("|").slice(1, -1);
         if (cells.every(c => c.trim().startsWith(":") || c.trim().startsWith("-"))) return;
@@ -134,37 +153,113 @@ function FormattedChatMarkdown({ content }: { content: string }) {
         return;
       }
       if (inTable) flushTable(idx);
-      if (t.startsWith("### ")) { elements.push(<p key={idx} style={{ margin: "6px 0 2px", fontSize: 13, fontWeight: 800, color: T.textPrimary }}>{renderText(t.slice(4))}</p>); return; }
-      if (t.startsWith("## "))  { elements.push(<p key={idx} style={{ margin: "8px 0 4px", fontSize: 14, fontWeight: 800, color: T.textPrimary }}>{renderText(t.slice(3))}</p>); return; }
-      if (/^[-*•]\s+/.test(t)) {
-        elements.push(<li key={idx} style={{ marginLeft: 16, marginBottom: 3, fontSize: 12, lineHeight: 1.6, color: T.textSecondary, listStyleType: "disc" }}>{renderText(t.replace(/^[-*•]\s+/, ""))}</li>);
+
+      // Headings
+      if (t.startsWith("### ")) {
+        elements.push(
+          <h4 key={idx} style={{ margin: "14px 0 6px", fontSize: 14.5, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.01em", display: "flex", alignItems: "center", gap: 6 }}>
+            {renderText(t.slice(4))}
+          </h4>
+        );
         return;
       }
-      if (t === "---") { elements.push(<hr key={idx} style={{ borderColor: T.cardBorder, margin: "8px 0" }} />); return; }
-      if (t) elements.push(<p key={idx} style={{ margin: "3px 0", fontSize: 12, lineHeight: 1.65, color: T.textSecondary }}>{renderText(t)}</p>);
+      if (t.startsWith("## ")) {
+        elements.push(
+          <h3 key={idx} style={{ margin: "16px 0 8px", fontSize: 16, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.01em" }}>
+            {renderText(t.slice(3))}
+          </h3>
+        );
+        return;
+      }
+
+      // Blockquotes / Callout boxes (> ...)
+      if (t.startsWith("> ")) {
+        elements.push(
+          <div key={idx} style={{ margin: "10px 0", padding: "10px 16px", borderRadius: 10, background: "#f8fafc", borderLeft: "3.5px solid #1a73e8", color: "#334155", fontSize: 13, lineHeight: 1.6 }}>
+            {renderText(t.slice(2))}
+          </div>
+        );
+        return;
+      }
+
+      // Bullet lists
+      if (/^[-*•]\s+/.test(t)) {
+        elements.push(
+          <li key={idx} style={{ marginLeft: 18, marginBottom: 5, fontSize: 13.5, lineHeight: 1.65, color: "#334155" }}>
+            {renderText(t.replace(/^[-*•]\s+/, ""))}
+          </li>
+        );
+        return;
+      }
+
+      // Numbered lists (1. , 2. )
+      const numMatch = t.match(/^(\d+)\.\s+(.*)/);
+      if (numMatch) {
+        elements.push(
+          <div key={idx} style={{ display: "flex", gap: 8, margin: "5px 0", fontSize: 13.5, lineHeight: 1.65, color: "#334155" }}>
+            <span style={{ fontWeight: 700, color: "#1a73e8", minWidth: 18 }}>{numMatch[1]}.</span>
+            <span>{renderText(numMatch[2])}</span>
+          </div>
+        );
+        return;
+      }
+
+      // Horizontal dividers
+      if (t === "---") {
+        elements.push(<hr key={idx} style={{ border: "none", borderTop: "1px solid #e2e8f0", margin: "14px 0" }} />);
+        return;
+      }
+
+      // Paragraphs
+      if (t) {
+        elements.push(
+          <p key={idx} style={{ margin: "6px 0", fontSize: 13.5, lineHeight: 1.7, color: "#334155" }}>
+            {renderText(t)}
+          </p>
+        );
+      }
     });
+
     if (inTable) flushTable(lines.length);
     return elements;
   };
 
   return (
-    <div>
-      <div>{renderBlocks(content)}</div>
-      <div style={{ paddingTop: 8, marginTop: 8, borderTop: `1px solid ${T.cardBorder}`, display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, color: T.textMuted }}>
-        <span style={{ color: T.indigo, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}>
-          <Icon name="auto_awesome" size={14} color={T.indigo} /> Grounded HR AI Answer
+    <div style={{ position: "relative" }}>
+      <div>
+        {renderBlocks(content)}
+        {isStreaming && (
+          <span style={{ display: "inline-block", width: 8, height: 16, background: "#1a73e8", marginLeft: 4, verticalAlign: "middle", animation: "pulse 0.8s infinite" }} />
+        )}
+      </div>
+      
+      {/* ChatGPT-style action bar */}
+      <div style={{ paddingTop: 10, marginTop: 12, borderTop: "1px solid #edf2f7", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11.5, color: "#64748b" }}>
+        <span style={{ color: "#1a73e8", fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
+          <Icon name="auto_awesome" size={14} color="#1a73e8" /> Grounded Policy Response
         </span>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button onClick={() => { navigator.clipboard.writeText(content); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-            style={{ border: "none", background: "none", color: copied ? T.emerald : T.textMuted, fontWeight: 600, cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", gap: 3 }}>
-            <Icon name={copied ? "check" : "content_copy"} size={14} />
-            {copied ? "Copied" : "Copy"}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            onClick={() => { navigator.clipboard.writeText(content); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+            style={{ border: "none", background: copied ? "#ecfdf5" : "transparent", padding: "4px 8px", borderRadius: 6, color: copied ? "#059669" : "#64748b", fontWeight: 600, cursor: "pointer", fontSize: 11.5, display: "flex", alignItems: "center", gap: 4, transition: "all 0.15s" }}
+            title="Copy response"
+          >
+            <Icon name={copied ? "check" : "content_copy"} size={14} color={copied ? "#059669" : "#64748b"} />
+            <span>{copied ? "Copied" : "Copy"}</span>
           </button>
-          <button onClick={() => setRating(r => r === "up" ? null : "up")} style={{ border: "none", background: "none", cursor: "pointer", opacity: rating === "up" ? 1 : 0.5 }}>
-            <Icon name="thumb_up" size={14} color={rating === "up" ? T.emerald : T.textMuted} />
+          <button
+            onClick={() => setRating(r => r === "up" ? null : "up")}
+            style={{ border: "none", background: "transparent", padding: 4, borderRadius: 4, cursor: "pointer", opacity: rating === "up" ? 1 : 0.6 }}
+            title="Good answer"
+          >
+            <Icon name="thumb_up" size={14} color={rating === "up" ? "#059669" : "#64748b"} />
           </button>
-          <button onClick={() => setRating(r => r === "down" ? null : "down")} style={{ border: "none", background: "none", cursor: "pointer", opacity: rating === "down" ? 1 : 0.5 }}>
-            <Icon name="thumb_down" size={14} color={rating === "down" ? T.rose : T.textMuted} />
+          <button
+            onClick={() => setRating(r => r === "down" ? null : "down")}
+            style={{ border: "none", background: "transparent", padding: 4, borderRadius: 4, cursor: "pointer", opacity: rating === "down" ? 1 : 0.6 }}
+            title="Needs improvement"
+          >
+            <Icon name="thumb_down" size={14} color={rating === "down" ? "#e11d48" : "#64748b"} />
           </button>
         </div>
       </div>
@@ -172,32 +267,35 @@ function FormattedChatMarkdown({ content }: { content: string }) {
   );
 }
 
-// ─── Message Bubble ───────────────────────────────────────────────────────────
-function MessageBubble({ message, timestamp }: { message: Message; timestamp: Date }) {
+// ─── Message Bubble (ChatGPT Layout) ──────────────────────────────────────────
+function MessageBubble({ message, timestamp, isLatestAssistant, isStreaming }: { message: Message; timestamp: Date; isLatestAssistant?: boolean; isStreaming?: boolean }) {
   const isUser = message.role === "user";
   return (
-    <div style={{ display: "flex", gap: 10, alignItems: "flex-start", flexDirection: isUser ? "row-reverse" : "row" }} className="animate-fade-in">
-      <div style={{ width: 32, height: 32, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 11,
-        background: isUser ? T.primaryGrad : "linear-gradient(135deg,#4f46e5,#818cf8)", color: "#fff", boxShadow: "0 2px 8px rgba(79,70,229,.25)" }}>
+    <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexDirection: isUser ? "row-reverse" : "row", width: "100%" }} className="animate-fade-in">
+      <div style={{
+        width: 34, height: 34, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12,
+        background: isUser ? "#1a73e8" : "linear-gradient(135deg, #1a73e8 0%, #0b57d0 100%)", color: "#fff", boxShadow: "0 2px 8px rgba(26,115,232,.25)"
+      }}>
         {isUser ? "You" : <Icon name="auto_awesome" size={18} color="#fff" />}
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: "82%", alignItems: isUser ? "flex-end" : "flex-start" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5, maxWidth: isUser ? "75%" : "88%", alignItems: isUser ? "flex-end" : "flex-start", width: isUser ? "auto" : "100%" }}>
         <div style={{
-          padding: "10px 16px", borderRadius: isUser ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-          background: isUser ? T.primaryGrad : "#ffffff",
-          border: isUser ? "none" : `1px solid ${T.cardBorder}`,
-          boxShadow: isUser ? "0 4px 14px rgba(79,70,229,.2)" : "0 1px 4px rgba(0,0,0,.06)",
-          color: isUser ? "#fff" : T.textPrimary,
-          fontSize: 12, lineHeight: 1.6,
+          padding: isUser ? "10px 18px" : "16px 20px",
+          borderRadius: isUser ? "20px 20px 4px 20px" : "4px 20px 20px 20px",
+          background: isUser ? "#1a73e8" : "#ffffff",
+          border: isUser ? "none" : "1px solid #e2e8f0",
+          boxShadow: isUser ? "0 2px 8px rgba(26,115,232,.2)" : "0 2px 8px rgba(0,0,0,.03)",
+          color: isUser ? "#fff" : "#1e293b",
+          width: isUser ? "auto" : "100%",
         }}>
           {isUser
-            ? <p style={{ margin: 0, color: "#fff" }}>{message.content}</p>
+            ? <p style={{ margin: 0, color: "#fff", fontSize: 13.5, lineHeight: 1.55 }}>{message.content}</p>
             : message.error
-              ? <p style={{ margin: 0, color: T.rose, fontSize: 12 }}>{message.content}</p>
-              : <FormattedChatMarkdown content={message.content} />}
+              ? <p style={{ margin: 0, color: "#e11d48", fontSize: 13 }}>{message.content}</p>
+              : <FormattedChatMarkdown content={message.content} isStreaming={isLatestAssistant && isStreaming} />}
         </div>
-        <p style={{ fontSize: 10, color: T.textMuted, margin: 0, padding: "0 2px" }}>
-          {isUser ? `You · ${formatTime(timestamp)}` : `HR Assistant · ${formatTime(timestamp)}`}
+        <p style={{ fontSize: 10.5, color: "#94a3b8", margin: 0, padding: "0 4px" }}>
+          {isUser ? `You · ${formatTime(timestamp)}` : `Glitch AI · ${formatTime(timestamp)}`}
         </p>
       </div>
     </div>
@@ -237,7 +335,7 @@ function TailwindChatbot({ token }: { token: string }) {
     setInput(""); setIsLoading(true);
     try {
       const history = [...messages, userMsg].map(({ role, content }) => ({ role, content }));
-      
+
       // Attempt low-latency SSE streaming first
       const res = await fetch(`${BACKEND_URL}/api/chat/stream`, {
         method: "POST",
@@ -336,18 +434,26 @@ function TailwindChatbot({ token }: { token: string }) {
               <p style={{ margin: "1px 0 0", fontSize: 13.5, fontWeight: 700, color: "#1f1f1f" }}>Policy Assistant</p>
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", borderRadius: 99, background: "#e6f4ea", border: "1px solid #ceead6", fontSize: 11, fontWeight: 700, color: "#137333" }}>
+          {/* <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", borderRadius: 99, background: "#e6f4ea", border: "1px solid #ceead6", fontSize: 11, fontWeight: 700, color: "#137333" }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#34a853", animation: "pulse 2s infinite", display: "inline-block" }} />
             Gemini Connected
-          </div>
+          </div> */}
         </div>
 
         {/* Messages */}
-        <div className="light-scrollbar" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 18, overflowY: "auto", maxHeight: 480, minHeight: 280, background: "#fafbff" }} role="log" aria-live="polite">
-          {messages.map((msg, i) => <MessageBubble key={i} message={msg} timestamp={timestamps[i] ?? new Date()} />)}
-          {isLoading && (
-            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-              <div style={{ width: 32, height: 32, borderRadius: "50%", flexShrink: 0, background: "var(--grad-gemini)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div className="light-scrollbar" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 20, overflowY: "auto", maxHeight: 520, minHeight: 320, background: "#f8fafc" }} role="log" aria-live="polite">
+          {messages.map((msg, i) => (
+            <MessageBubble
+              key={i}
+              message={msg}
+              timestamp={timestamps[i] ?? new Date()}
+              isLatestAssistant={i === messages.length - 1 && msg.role === "assistant"}
+              isStreaming={isLoading}
+            />
+          ))}
+          {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, background: "linear-gradient(135deg, #1a73e8 0%, #0b57d0 100%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Icon name="auto_awesome" size={18} color="#fff" />
               </div>
               <TypingIndicator />
@@ -402,7 +508,7 @@ export default function EmployeeDashboard() {
     const storedEmployee = localStorage.getItem("employee_profile");
     if (!storedToken) { router.push("/login"); return; }
     setToken(storedToken);
-    if (storedEmployee) { try { setProfile(JSON.parse(storedEmployee)); } catch {} }
+    if (storedEmployee) { try { setProfile(JSON.parse(storedEmployee)); } catch { } }
     loadEmployeeData(storedToken);
   }, [router]);
 
@@ -459,7 +565,7 @@ export default function EmployeeDashboard() {
       setLeaveSuccess(true);
       setTimeout(() => setLeaveSuccess(false), 4000);
       setLeaveApplication({ from_date: "", to_date: "", reason: "", leave_type: "casual_leave" });
-      
+
       // Authoritative state refetch from backend
       await loadEmployeeData(token);
     } catch (err: any) {
@@ -488,9 +594,9 @@ export default function EmployeeDashboard() {
   const fullName = profile ? `${profile.first_name} ${profile.last_name}` : "Employee";
 
   const attBadge = (status: string) => {
-    if (status === "Present")  return { bg: "var(--google-green-container)", text: "var(--google-green-text)", border: "var(--google-green-border)" };
-    if (status === "WFH")      return { bg: "var(--google-blue-container)", text: "var(--google-blue-text)", border: "var(--google-blue-border)" };
-    if (status === "Absent")   return { bg: "var(--google-red-container)", text: "var(--google-red-text)", border: "var(--google-red-border)" };
+    if (status === "Present") return { bg: "var(--google-green-container)", text: "var(--google-green-text)", border: "var(--google-green-border)" };
+    if (status === "WFH") return { bg: "var(--google-blue-container)", text: "var(--google-blue-text)", border: "var(--google-blue-border)" };
+    if (status === "Absent") return { bg: "var(--google-red-container)", text: "var(--google-red-text)", border: "var(--google-red-border)" };
     return { bg: "var(--google-yellow-container)", text: "var(--google-yellow-text)", border: "var(--google-yellow-border)" };
   };
 
@@ -541,7 +647,8 @@ export default function EmployeeDashboard() {
             const meta = TAB_LABELS[tab];
             return (
               <button key={tab} onClick={() => setActiveTab(tab)}
-                style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 20px", borderRadius: 28, fontSize: 13, fontWeight: active ? 700 : 500, whiteSpace: "nowrap", cursor: "pointer", transition: "all 0.2s ease", border: "none",
+                style={{
+                  display: "flex", alignItems: "center", gap: 8, padding: "9px 20px", borderRadius: 28, fontSize: 13, fontWeight: active ? 700 : 500, whiteSpace: "nowrap", cursor: "pointer", transition: "all 0.2s ease", border: "none",
                   background: active ? "#e8f0fe" : "#ffffff",
                   color: active ? "#1a73e8" : "#5f6368",
                   boxShadow: active ? "0 1px 3px rgba(60,64,67,0.12)" : "0 1px 2px rgba(60,64,67,0.06)",
@@ -585,10 +692,10 @@ export default function EmployeeDashboard() {
             {/* Metric cards — Responsive 2x2 on Mobile, 4x1 on Desktop */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 14 }}>
               {[
-                { icon: "corporate_fare", label: "Department",        value: profile?.department ?? "Engineering",        bg: "var(--google-blue-container)",   color: "var(--google-blue)" },
-                { icon: "badge",          label: "Designation",       value: profile?.designation ?? "Software Engineer", bg: "var(--google-purple-container)", color: "var(--google-purple)" },
-                { icon: "person",         label: "Reporting Manager", value: profile?.manager_name ?? "—",            bg: "var(--google-yellow-container)", color: "var(--google-yellow)" },
-                { icon: "star",           label: "Performance Rating", value: `${profile?.performance_rating ?? 4.8} / 5.0`, bg: "var(--google-green-container)",  color: "var(--google-green)" },
+                { icon: "corporate_fare", label: "Department", value: profile?.department ?? "Engineering", bg: "var(--google-blue-container)", color: "var(--google-blue)" },
+                { icon: "badge", label: "Designation", value: profile?.designation ?? "Software Engineer", bg: "var(--google-purple-container)", color: "var(--google-purple)" },
+                { icon: "person", label: "Reporting Manager", value: profile?.manager_name ?? "—", bg: "var(--google-yellow-container)", color: "var(--google-yellow)" },
+                { icon: "star", label: "Performance Rating", value: `${profile?.performance_rating ?? 4.8} / 5.0`, bg: "var(--google-green-container)", color: "var(--google-green)" },
               ].map(c => (
                 <div key={c.label} className="light-card light-card-lift" style={{ padding: "16px 18px", display: "flex", alignItems: "center", gap: 12 }}>
                   <div style={{ width: 44, height: 44, borderRadius: 12, background: c.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -609,10 +716,10 @@ export default function EmployeeDashboard() {
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 12 }}>
                 {[
-                  { label: "Casual Leave",       val: leaveBalance?.casual_leave_remaining ?? 12,   color: "var(--google-blue-text)",    bg: "var(--google-blue-container)", border: "var(--google-blue-border)" },
-                  { label: "Sick Leave",          val: leaveBalance?.sick_leave_remaining ?? 8,      color: "var(--google-green-text)",   bg: "var(--google-green-container)", border: "var(--google-green-border)" },
-                  { label: "Privilege Leave",     val: leaveBalance?.privilege_leave_remaining ?? 15, color: "var(--google-purple-text)",  bg: "var(--google-purple-container)", border: "var(--google-purple-border)" },
-                  { label: "Floating Holidays",  val: leaveBalance?.floating_holidays_remaining ?? 3, color: "var(--google-yellow-text)",  bg: "var(--google-yellow-container)", border: "var(--google-yellow-border)" },
+                  { label: "Casual Leave", val: leaveBalance?.casual_leave_remaining ?? 12, color: "var(--google-blue-text)", bg: "var(--google-blue-container)", border: "var(--google-blue-border)" },
+                  { label: "Sick Leave", val: leaveBalance?.sick_leave_remaining ?? 8, color: "var(--google-green-text)", bg: "var(--google-green-container)", border: "var(--google-green-border)" },
+                  { label: "Privilege Leave", val: leaveBalance?.privilege_leave_remaining ?? 15, color: "var(--google-purple-text)", bg: "var(--google-purple-container)", border: "var(--google-purple-border)" },
+                  { label: "Floating Holidays", val: leaveBalance?.floating_holidays_remaining ?? 3, color: "var(--google-yellow-text)", bg: "var(--google-yellow-container)", border: "var(--google-yellow-border)" },
                 ].map(l => (
                   <div key={l.label} style={{ padding: "16px 14px", borderRadius: 14, background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
                     <p style={{ margin: 0, fontSize: 28, fontWeight: 900, color: l.color }}>{l.val}</p>
@@ -649,7 +756,7 @@ export default function EmployeeDashboard() {
                 <tbody>
                   {(attendance.length > 0 ? attendance : [
                     { date: "29 Jul 2026", status: "Present", hours_worked: 8.5 },
-                    { date: "28 Jul 2026", status: "WFH",     hours_worked: 8.0 },
+                    { date: "28 Jul 2026", status: "WFH", hours_worked: 8.0 },
                     { date: "25 Jul 2026", status: "Present", hours_worked: 9.0 },
                     { date: "24 Jul 2026", status: "Present", hours_worked: 8.0 },
                     { date: "23 Jul 2026", status: "Present", hours_worked: 8.5 },
@@ -687,9 +794,9 @@ export default function EmployeeDashboard() {
             <form onSubmit={handleLeaveApplication} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16 }}>
               {[
                 { label: "Leave Type", isSelect: true, key: "leave_type" },
-                { label: "Start Date",  isDate: true,   key: "from_date" },
-                { label: "End Date",    isDate: true,   key: "to_date" },
-                { label: "Reason",      isText: true,   key: "reason" },
+                { label: "Start Date", isDate: true, key: "from_date" },
+                { label: "End Date", isDate: true, key: "to_date" },
+                { label: "Reason", isText: true, key: "reason" },
               ].map(f => (
                 <div key={f.key} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <label style={{ fontSize: 11, fontWeight: 700, color: T.textSecondary, textTransform: "uppercase", letterSpacing: "0.06em" }}>{f.label}</label>
@@ -740,8 +847,8 @@ export default function EmployeeDashboard() {
                       {myLeaveRequests.map((req, idx) => {
                         const st = req.status || "pending";
                         const b = st === "approved" ? { bg: "#f0fdf4", text: "#15803d", border: "#bbf7d0", label: "Approved" }
-                                : st === "rejected" ? { bg: "#fff1f2", text: "#be123c", border: "#fecdd3", label: "Rejected" }
-                                : { bg: "#fffbeb", text: "#b45309", border: "#fde68a", label: "Pending HR Review" };
+                          : st === "rejected" ? { bg: "#fff1f2", text: "#be123c", border: "#fecdd3", label: "Rejected" }
+                            : { bg: "#fffbeb", text: "#b45309", border: "#fde68a", label: "Pending HR Review" };
                         return (
                           <tr key={req.id || idx} style={{ borderTop: "1px solid #f1f5f9" }}>
                             <td style={{ padding: "11px 14px", fontWeight: 700, color: T.textPrimary }}>{req.id || "LV-001"}</td>
@@ -780,21 +887,27 @@ export default function EmployeeDashboard() {
             {/* Details grid */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 14 }}>
               {[
-                { title: "Contact Info", rows: [
-                  { k: "Employee ID", v: profile.employee_id },
-                  { k: "Work Email",  v: profile.email },
-                  { k: "Phone",       v: profile.phone || "+91 98765 43210" },
-                ]},
-                { title: "Work Details", rows: [
-                  { k: "Manager",         v: profile.manager_name },
-                  { k: "Office Location", v: profile.office_location },
-                  { k: "Work Mode",       v: profile.work_mode },
-                ]},
-                { title: "Career Stats", rows: [
-                  { k: "Years at Company",    v: `${profile.years_with_company ?? 2} years` },
-                  { k: "Performance Rating",  v: `${profile.performance_rating ?? 4.8} / 5.0` },
-                  { k: "Date of Joining",     v: profile.date_of_joining ?? "—" },
-                ]},
+                {
+                  title: "Contact Info", rows: [
+                    { k: "Employee ID", v: profile.employee_id },
+                    { k: "Work Email", v: profile.email },
+                    { k: "Phone", v: profile.phone || "+91 98765 43210" },
+                  ]
+                },
+                {
+                  title: "Work Details", rows: [
+                    { k: "Manager", v: profile.manager_name },
+                    { k: "Office Location", v: profile.office_location },
+                    { k: "Work Mode", v: profile.work_mode },
+                  ]
+                },
+                {
+                  title: "Career Stats", rows: [
+                    { k: "Years at Company", v: `${profile.years_with_company ?? 2} years` },
+                    { k: "Performance Rating", v: `${profile.performance_rating ?? 4.8} / 5.0` },
+                    { k: "Date of Joining", v: profile.date_of_joining ?? "—" },
+                  ]
+                },
               ].map(section => (
                 <div key={section.title} style={{ padding: "16px 18px", borderRadius: 14, background: T.mutedBg, border: `1px solid ${T.cardBorder}` }}>
                   <p style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 800, color: T.textSecondary, textTransform: "uppercase", letterSpacing: "0.08em" }}>{section.title}</p>
