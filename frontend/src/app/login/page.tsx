@@ -55,6 +55,14 @@ export default function LoginPage() {
     fetch(`${BACKEND_URL}/health/liveness`, { cache: "no-store" }).catch(() => {});
     if (typeof window !== "undefined") {
       const q = window.location.search;
+      if (!q.includes("expired=1") && !q.includes("logout=1") && !q.includes("signup=success")) {
+        const storedToken = localStorage.getItem("token");
+        const storedRole = localStorage.getItem("role");
+        if (storedToken && storedRole) {
+          window.location.href = storedRole === "hr_admin" ? "/hr" : "/employees";
+          return;
+        }
+      }
       if (q.includes("expired=1")) {
         setError("Your session has expired. Please sign in again.");
       }
@@ -68,6 +76,9 @@ export default function LoginPage() {
   const isAdmin = role === "hr_admin";
 
   async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
     if (!isAdmin && !passkey.trim()) {
       setError("Please enter your company's workspace passkey to log in.");
       return;
@@ -126,8 +137,7 @@ export default function LoginPage() {
       localStorage.setItem("token", data.accessToken);
       localStorage.setItem("role", data.role);
       localStorage.setItem("companyId", data.companyId ?? "");
-      router.push(data.role === "hr_admin" ? "/hr" : "/employees");
-      router.refresh();
+      window.location.href = data.role === "hr_admin" ? "/hr" : "/employees";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed.");
     } finally {
