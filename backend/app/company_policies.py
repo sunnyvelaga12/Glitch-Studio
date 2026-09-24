@@ -34,6 +34,23 @@ async def get_company_policy_document(company_id: str) -> dict[str, Any]:
             f"[Source: {d.get('filename')}]\n{d.get('text', '')}"
             for d in docs if d.get("text")
         )
+    # Check parent_chunks in MongoDB Atlas (primary Small-to-Big chunks)
+    parent_docs = await db.parent_chunks.find({"company_id": company_id}).to_list(length=100)
+    if parent_docs:
+        combined_text = "\n\n---\n\n".join(
+            f"[Source: {p.get('filename', 'Policy')}, Section: {p.get('header_breadcrumb', 'General')}]\n{p.get('text', '')}"
+            for p in parent_docs if p.get("text")
+        )
+        if combined_text.strip():
+            return {"full_text": combined_text}
+
+    # Check document_chunks in MongoDB (fallback chunks)
+    chunk_docs = await db.document_chunks.find({"company_id": company_id}).to_list(length=100)
+    if chunk_docs:
+        combined_text = "\n\n---\n\n".join(
+            f"[Source: {c.get('filename', 'Policy')}]\n{c.get('text', '')}"
+            for c in chunk_docs if c.get("text")
+        )
         if combined_text.strip():
             return {"full_text": combined_text}
 

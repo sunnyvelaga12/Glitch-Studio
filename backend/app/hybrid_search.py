@@ -23,8 +23,9 @@ logger = logging.getLogger(__name__)
 
 # Constants
 RRF_SMOOTHING_CONSTANT = 60
-HIGH_CONFIDENCE_THRESHOLD = 0.85
-MODERATE_CONFIDENCE_THRESHOLD = 0.75
+HIGH_CONFIDENCE_THRESHOLD = 0.80
+MODERATE_CONFIDENCE_THRESHOLD = 0.70
+LEXICAL_FALLBACK_MIN_SCORE = 1.0
 MAX_PARENT_CHUNKS = 5
 MAX_CONTEXT_TOKENS = 2500
 
@@ -86,9 +87,24 @@ async def execute_lexical_search(
         except Exception as exc:
             logger.debug("MongoDB $text search fallback to regex: %s", exc)
 
-    regex_pattern = "|".join(raw_terms)
+    # Add HR domain stem & synonym expansion for robust keyword matching
+    expanded_terms = set(raw_terms)
+    for term in raw_terms:
+        t = term.lower()
+        if any(k in t for k in ["timing", "hour", "time"]):
+            expanded_terms.update(["timing", "hour", "working", "schedule", "attendance"])
+        elif "leave" in t:
+            expanded_terms.update(["leave", "vacation", "holiday", "absence"])
+        elif any(k in t for k in ["salary", "pay"]):
+            expanded_terms.update(["compensation", "salary", "payroll", "allowance"])
+        elif "dress" in t:
+            expanded_terms.update(["dress", "attire", "casual"])
+        elif any(k in t for k in ["remote", "wfh", "hybrid"]):
+            expanded_terms.update(["remote", "hybrid", "office", "work mode"])
 
-    # 2. Fallback to regex scan if text index is unavailable
+    regex_pattern = "|".join(expanded_terms)
+
+    # 2. Fallback to regex scan if text index is unavailable or yields few hits
     cursor = db.parent_chunks.find({
         "company_id": company_id,
         "$or": [
@@ -229,15 +245,25 @@ async def execute_hybrid_search(
     elif peak_cosine >= MODERATE_CONFIDENCE_THRESHOLD:
         confidence = "moderate"
         disclaimer_required = True
+    elif lexical_matches and lexical_matches[0]["score"] >= LEXICAL_FALLBACK_MIN_SCORE:
+        # Lexical keyword hit in MongoDB text index or term frequencies
+        confidence = "moderate"
+        disclaimer_required = True
     else:
-        # Check if strong lexical match exists as an exact policy code or keyword hit
-        if lexical_matches and lexical_matches[0]["score"] >= 3:
+        # Check if company has policy documents in MongoDB parent_chunks
+        db = get_db()
+        policy_chunks_count = await db.parent_chunks.count_documents({"company_id": company_id})
+        if policy_chunks_count > 0:
+            logger.info(
+                f"No specific dense/lexical match, but company has {policy_chunks_count} policy parent chunks. "
+                "Synthesizing with company policy context to ensure grounded response."
+            )
             confidence = "moderate"
             disclaimer_required = True
         else:
             confidence = "low"
             disclaimer_required = False
-            # Graceful Fallback Routing: abort RAG generation immediately to prevent hallucinations
+            # Truly no policies uploaded for this company
             return {
                 "status": "fallback",
                 "confidence": confidence,
@@ -250,7 +276,16 @@ async def execute_hybrid_search(
 
     # 3. Fuse dense and lexical lists via RRF
     fused_results = compute_reciprocal_rank_fusion(dense_matches, lexical_matches)
+    db = get_db()
+
     if not fused_results:
+        # Neither dense nor lexical had specific query hits, but company has policies in DB
+        all_parents = await db.parent_chunks.find({"company_id": company_id}).limit(top_parents).to_list(top_parents)
+        top_parent_ids = [p["parent_id"] for p in all_parents]
+    else:
+        top_parent_ids = [item["parent_id"] for item in fused_results[:top_parents]]
+
+    if not top_parent_ids:
         return {
             "status": "fallback",
             "confidence": "low",
@@ -262,8 +297,6 @@ async def execute_hybrid_search(
         }
 
     # 4. Context Window Compaction: fetch top parent chunks from MongoDB Atlas
-    top_parent_ids = [item["parent_id"] for item in fused_results[:top_parents]]
-    db = get_db()
     cursor = db.parent_chunks.find({
         "company_id": company_id,
         "parent_id": {"$in": top_parent_ids}
