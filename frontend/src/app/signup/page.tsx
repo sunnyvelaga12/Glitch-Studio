@@ -173,25 +173,25 @@ export default function SignupPage() {
               <span style={{ fontSize: 22, fontWeight: 700, color: "#1f1f1f", letterSpacing: "-0.02em" }}>Glitch</span>
             </div>
 
-            <h1 style={{ margin: "0 0 10px", fontSize: 36, fontWeight: 400, color: "#1f1f1f", letterSpacing: "-0.02em", lineHeight: 1.15 }}>
-              Create a Glitch Account
+            <h1 style={{ margin: "0 0 10px", fontSize: 32, fontWeight: 500, color: "#1f1f1f", letterSpacing: "-0.02em", lineHeight: 1.2 }}>
+              {isAdmin ? "Create an HR Workspace" : "Set Employee Password"}
             </h1>
-            <p style={{ margin: 0, fontSize: 16, color: "#1f1f1f", fontWeight: 400 }}>
-              {isAdmin ? "Register your organization to start with smart HR" : "Join your company workspace with a passkey"}
+            <p style={{ margin: 0, fontSize: 15, color: "#444746", fontWeight: 400 }}>
+              {isAdmin ? "Register your organization to start with smart HR" : "Activate your employee account and create your password using your company passkey"}
             </p>
           </div>
 
           <div style={{ marginTop: 32 }}>
             <div style={{ padding: "14px 16px", borderRadius: 16, background: isAdmin ? "#e8f0fe" : "#e6f4ea", border: `1px solid ${isAdmin ? "#d2e3fc" : "#ceead6"}`, display: "flex", alignItems: "center", gap: 12 }}>
-              <Icon name={isAdmin ? "corporate_fare" : "key"} size={24} color={isAdmin ? "#1a73e8" : "#1e8e3e"} />
+              <Icon name={isAdmin ? "corporate_fare" : "badge"} size={24} color={isAdmin ? "#1a73e8" : "#1e8e3e"} />
               <div>
                 <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: isAdmin ? "#174ea6" : "#137333" }}>
-                  {isAdmin ? "Organization Admin Workspace" : "Employee Member Account"}
+                  {isAdmin ? "Organization Admin Workspace" : "Employee Password Setup & Activation"}
                 </p>
                 <p style={{ margin: "2px 0 0", fontSize: 12, color: isAdmin ? "#174ea6" : "#137333", opacity: 0.85 }}>
                   {isAdmin
                     ? "Generates an isolated tenant workspace with AI policy indexing and unique passkey."
-                    : "Connects your account to your company using their HR passkey."}
+                    : "Employees on the company roster can set their password and activate portal access using their workspace passkey."}
                 </p>
               </div>
             </div>
@@ -211,7 +211,7 @@ export default function SignupPage() {
             <div style={{ display: "flex", background: "#f1f3f4", padding: 4, borderRadius: 28, marginBottom: 20, border: "1px solid #dadce0" }}>
               {[
                 { val: "hr_admin", icon: "corporate_fare", label: "HR Administrator" },
-                { val: "employee", icon: "person", label: "Employee Member" }
+                { val: "employee", icon: "badge", label: "Employee (Set Password)" }
               ].map(r => (
                 <button
                   key={r.val}
@@ -454,10 +454,10 @@ export default function SignupPage() {
               {loading ? (
                 <>
                   <span className="anim-spin" style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block" }} />
-                  <span>Creating…</span>
+                  <span>{isAdmin ? "Creating Workspace…" : "Setting Password…"}</span>
                 </>
               ) : (
-                <span>Next</span>
+                <span>{isAdmin ? "Create Workspace" : "Set Password & Activate"}</span>
               )}
             </button>
           </div>

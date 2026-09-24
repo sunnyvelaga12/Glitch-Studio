@@ -46,14 +46,22 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [role, setRole] = useState<"hr_admin" | "employee">("hr_admin");
   const [error, setError] = useState<string | null>(null);
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
 
   // Pre-warm the backend immediately upon page load to spin up cloud instance if asleep
   useEffect(() => {
     fetch(`${BACKEND_URL}/health/liveness`, { cache: "no-store" }).catch(() => {});
-    if (typeof window !== "undefined" && window.location.search.includes("expired=1")) {
-      setError("Your session has expired. Please sign in again.");
+    if (typeof window !== "undefined") {
+      const q = window.location.search;
+      if (q.includes("expired=1")) {
+        setError("Your session has expired. Please sign in again.");
+      }
+      if (q.includes("signup=success")) {
+        setSuccessNotice("Password created successfully! Please sign in with your email, password, and workspace passkey.");
+        setRole("employee");
+      }
     }
   }, []);
 
@@ -319,6 +327,13 @@ export default function LoginPage() {
                 </div>
               )}
 
+              {successNotice && (
+                <div style={{ padding: "10px 14px", borderRadius: 8, background: "#e6f4ea", border: "1px solid #ceead6", color: "#137333", fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+                  <Icon name="check_circle" size={18} color="#1e8e3e" style={{ flexShrink: 0 }} />
+                  <span>{successNotice}</span>
+                </div>
+              )}
+
               {statusNotice && (
                 <div style={{ padding: "10px 14px", borderRadius: 8, background: "#e8f0fe", border: "1px solid #d2e3fc", color: "#174ea6", fontSize: 13, display: "flex", alignItems: "center", gap: 10 }}>
                   <span className="anim-spin" style={{ width: 16, height: 16, border: "2px solid #1a73e8", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block", flexShrink: 0 }} />
@@ -341,11 +356,11 @@ export default function LoginPage() {
           <div className="google-auth-actions" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 32, paddingTop: 16 }}>
             <Link
               href="/signup"
-              style={{ color: "#0b57d0", fontSize: 14, fontWeight: 600, textDecoration: "none", padding: "8px 12px", borderRadius: 20, transition: "background 0.15s" }}
+              style={{ color: "#0b57d0", fontSize: 13.5, fontWeight: 600, textDecoration: "none", padding: "8px 12px", borderRadius: 20, transition: "background 0.15s" }}
               onMouseEnter={e => (e.currentTarget.style.background = "#f0f4f9")}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             >
-              Create account
+              First time? Set employee password
             </Link>
 
             <button

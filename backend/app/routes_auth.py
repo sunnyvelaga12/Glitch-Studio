@@ -83,8 +83,9 @@ async def signup(payload: SignupRequest, request: Request):
     _check_rate_limit(request, "/api/auth/signup")
     db = get_db()
 
+    import re
     email = payload.email.strip().lower()
-    existing_user = await db.users.find_one({"email": email})
+    existing_user = await db.users.find_one({"$or": [{"email": email}, {"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}]})
     if existing_user:
         # Check if this is an employee account pre-created / imported by HR Admin
         if payload.role == "employee" and existing_user.get("role") == "employee":
@@ -279,10 +280,11 @@ async def get_workspace_by_passkey(passkey: str, request: Request):
 @router.post("/login", response_model=LoginResponse)
 async def login(payload: LoginRequest, request: Request, response: Response):
     _check_rate_limit(request, "/api/auth/login")
+    import re
     email = payload.email.strip().lower()
     db = get_db()
 
-    user = await db.users.find_one({"email": email})
+    user = await db.users.find_one({"$or": [{"email": email}, {"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}]})
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
