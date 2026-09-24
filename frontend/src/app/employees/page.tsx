@@ -469,7 +469,10 @@ export default function EmployeeDashboard() {
     }
   };
 
-  const handleLogout = () => { localStorage.removeItem("token"); localStorage.removeItem("employee_profile"); router.push("/login"); };
+  const handleLogout = () => {
+    ["token", "role", "companyId", "employee_profile"].forEach(k => localStorage.removeItem(k));
+    window.location.href = "/login?logout=1";
+  };
 
   if (!profile && loading) {
     return (

@@ -55,14 +55,6 @@ export default function LoginPage() {
     fetch(`${BACKEND_URL}/health/liveness`, { cache: "no-store" }).catch(() => {});
     if (typeof window !== "undefined") {
       const q = window.location.search;
-      if (!q.includes("expired=1") && !q.includes("logout=1") && !q.includes("signup=success")) {
-        const storedToken = localStorage.getItem("token");
-        const storedRole = localStorage.getItem("role");
-        if (storedToken && storedRole) {
-          window.location.href = storedRole === "hr_admin" ? "/hr" : "/employees";
-          return;
-        }
-      }
       if (q.includes("expired=1")) {
         setError("Your session has expired. Please sign in again.");
       }
@@ -94,6 +86,9 @@ export default function LoginPage() {
     const abortTimeout = setTimeout(() => controller.abort(), 55000);
 
     try {
+      // Purge any stale tokens from previous sessions before logging into the new account
+      ["token", "role", "companyId", "employee_profile"].forEach(k => localStorage.removeItem(k));
+
       const payload: any = { email: email.trim(), password, role };
       if (!isAdmin && passkey.trim()) {
         payload.passkey = passkey.trim();

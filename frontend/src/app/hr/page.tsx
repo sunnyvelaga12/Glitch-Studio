@@ -1228,7 +1228,10 @@ export default function HrDashboard() {
     apiFetch(`${BACKEND_URL}/api/hr/companies/${cId}/passkey`).then(d => { if (d?.passkey) setCompanyPasskey(d.passkey); }).catch(() => {});
   }, [router]);
 
-  function logout() { ["token","role","companyId"].forEach(k => localStorage.removeItem(k)); router.push("/login"); }
+  function logout() {
+    ["token", "role", "companyId", "employee_profile"].forEach(k => localStorage.removeItem(k));
+    window.location.href = "/login?logout=1";
+  }
 
   if (!ready) {
     return (
