@@ -1207,6 +1207,8 @@ export default function HrDashboard() {
   const [hrInitials, setHrInitials] = useState("HR");
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [companyPasskey, setCompanyPasskey] = useState("");
+  const [passkeyCopied, setPasskeyCopied] = useState(false);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -1223,6 +1225,7 @@ export default function HrDashboard() {
       setHrInitials(parts.length >= 2 ? (parts[0][0] + parts[1][0]).toUpperCase() : name.slice(0, 2).toUpperCase());
     } catch {}
     apiFetch(`${BACKEND_URL}/api/hr/companies/${cId}`).then(d => { if (d.name) setCompanyName(d.name); }).catch(() => {});
+    apiFetch(`${BACKEND_URL}/api/hr/companies/${cId}/passkey`).then(d => { if (d?.passkey) setCompanyPasskey(d.passkey); }).catch(() => {});
   }, [router]);
 
   function logout() { ["token","role","companyId"].forEach(k => localStorage.removeItem(k)); router.push("/login"); }
@@ -1375,6 +1378,12 @@ export default function HrDashboard() {
               <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 12, background: "#f8fafd", border: "1px solid #dadce0" }}>
                 <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: "#5f6368", textTransform: "uppercase" }}>Workspace ID</p>
                 <p style={{ margin: "2px 0 0", fontSize: 11, color: "#1a73e8", fontFamily: "monospace", wordBreak: "break-all", fontWeight: 600 }}>{companyId}</p>
+                {companyPasskey && (
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #dadce0" }}>
+                    <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: "#137333", textTransform: "uppercase" }}>Workspace Passkey</p>
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "#1e8e3e", fontFamily: "monospace", fontWeight: 700, letterSpacing: "0.08em" }}>{companyPasskey}</p>
+                  </div>
+                )}
               </div>
               <button
                 onClick={logout}
@@ -1415,13 +1424,40 @@ export default function HrDashboard() {
           </nav>
 
           {/* Google Cloud Style Workspace Domain Card */}
-          <div style={{ marginTop: 24, padding: "14px 16px", borderRadius: 16, background: "#ffffff", border: "1px solid #dadce0", boxShadow: "0 1px 3px rgba(60,64,67,0.08)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <div style={{ marginTop: 24, padding: "14px 16px", borderRadius: 16, background: "#ffffff", border: "1px solid #dadce0", boxShadow: "0 1px 3px rgba(60,64,67,0.08)", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
               <span style={{ fontSize: 10, fontWeight: 700, color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.08em", display: "flex", alignItems: "center", gap: 4 }}>
                 <Icon name="domain" size={14} color="#1a73e8" /> Workspace ID
               </span>
+              <p style={{ margin: "4px 0 0", fontSize: 11, color: "#1a73e8", fontFamily: "monospace", wordBreak: "break-all", lineHeight: 1.4, fontWeight: 600 }}>{companyId}</p>
             </div>
-            <p style={{ margin: 0, fontSize: 11, color: "#1a73e8", fontFamily: "monospace", wordBreak: "break-all", lineHeight: 1.4, fontWeight: 600 }}>{companyId}</p>
+
+            {companyPasskey && (
+              <div style={{ paddingTop: 10, borderTop: "1px solid #f1f3f4" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: "#137333", textTransform: "uppercase", letterSpacing: "0.08em", display: "flex", alignItems: "center", gap: 4 }}>
+                    <Icon name="key" size={14} color="#1e8e3e" /> Employee Passkey
+                  </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(companyPasskey);
+                      setPasskeyCopied(true);
+                      setTimeout(() => setPasskeyCopied(false), 2000);
+                    }}
+                    style={{ background: passkeyCopied ? "#e6f4ea" : "#e8f0fe", border: "none", borderRadius: 12, padding: "2px 8px", cursor: "pointer", color: passkeyCopied ? "#137333" : "#1a73e8", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    <Icon name={passkeyCopied ? "check" : "content_copy"} size={12} />
+                    <span>{passkeyCopied ? "Copied!" : "Copy"}</span>
+                  </button>
+                </div>
+                <p style={{ margin: "4px 0 0", fontSize: 13, color: "#1e8e3e", fontFamily: "monospace", fontWeight: 700, letterSpacing: "0.1em" }}>
+                  {companyPasskey}
+                </p>
+                <p style={{ margin: "2px 0 0", fontSize: 10.5, color: "#747775" }}>
+                  Required for employees to log in & activate accounts
+                </p>
+              </div>
+            )}
           </div>
         </aside>
 

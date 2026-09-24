@@ -41,6 +41,8 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passkey, setPasskey] = useState("");
+  const [resolvedCompany, setResolvedCompany] = useState<string | null>(null);
   const [showPw, setShowPw] = useState(false);
   const [role, setRole] = useState<"hr_admin" | "employee">("hr_admin");
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +60,11 @@ export default function LoginPage() {
   const isAdmin = role === "hr_admin";
 
   async function onSubmit(e: React.FormEvent) {
-    e.preventDefault(); setError(null); setLoading(true); setStatusNotice(null);
+    if (!isAdmin && !passkey.trim()) {
+      setError("Please enter your company's workspace passkey to log in.");
+      return;
+    }
+    setLoading(true); setStatusNotice(null);
 
     // If server takes longer than 2.5s, inform the user that the cloud service is waking up
     const warmNoticeTimer = setTimeout(() => {
@@ -69,12 +75,17 @@ export default function LoginPage() {
     const abortTimeout = setTimeout(() => controller.abort(), 55000);
 
     try {
+      const payload: any = { email: email.trim(), password, role };
+      if (!isAdmin && passkey.trim()) {
+        payload.passkey = passkey.trim();
+      }
+
       let res: Response;
       try {
         res = await fetch(`${BACKEND_URL}/api/auth/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: email.trim(), password }),
+          body: JSON.stringify(payload),
           signal: controller.signal,
         });
       } catch (fetchErr: any) {
@@ -258,6 +269,55 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
+
+              {/* Workspace Passkey for Employee Mode */}
+              {!isAdmin && (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#444746", display: "flex", alignItems: "center", gap: 5 }}>
+                      <Icon name="key" size={16} color="#0b57d0" />
+                      Workspace Passkey
+                    </label>
+                    {resolvedCompany && (
+                      <span style={{ fontSize: 12, color: "#137333", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+                        <Icon name="check_circle" size={14} color="#1e8e3e" />
+                        {resolvedCompany}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type="text"
+                      required
+                      value={passkey}
+                      onChange={e => {
+                        const val = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "");
+                        setPasskey(val);
+                        setResolvedCompany(null);
+                        const norm = val.replace(/-/g, "");
+                        if (norm.length >= 6) {
+                          fetch(`${BACKEND_URL}/api/auth/workspace/${norm}`)
+                            .then(r => r.ok ? r.json() : null)
+                            .then(d => { if (d?.companyName) setResolvedCompany(d.companyName); })
+                            .catch(() => {});
+                        }
+                      }}
+                      placeholder="e.g. 2SATLLD3"
+                      style={{
+                        width: "100%", height: 52, padding: "0 16px", borderRadius: 8, border: "1px solid #747775",
+                        background: "#ffffff", color: "#1f1f1f", fontSize: 15, fontWeight: 600, letterSpacing: "0.08em",
+                        textTransform: "uppercase", outline: "none", boxSizing: "border-box",
+                        transition: "border-color 0.2s, box-shadow 0.2s"
+                      }}
+                      onFocus={e => { e.currentTarget.style.borderColor = "#0b57d0"; e.currentTarget.style.boxShadow = "0 0 0 1px #0b57d0"; }}
+                      onBlur={e => { e.currentTarget.style.borderColor = "#747775"; e.currentTarget.style.boxShadow = "none"; }}
+                    />
+                  </div>
+                  <p style={{ margin: "4px 0 0", fontSize: 11.5, color: "#5f6368" }}>
+                    Provided by your HR Administrator to authenticate with your company workspace.
+                  </p>
+                </div>
+              )}
 
               {statusNotice && (
                 <div style={{ padding: "10px 14px", borderRadius: 8, background: "#e8f0fe", border: "1px solid #d2e3fc", color: "#174ea6", fontSize: 13, display: "flex", alignItems: "center", gap: 10 }}>

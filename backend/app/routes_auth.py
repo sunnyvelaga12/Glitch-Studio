@@ -86,6 +86,40 @@ async def signup(payload: SignupRequest, request: Request):
     email = payload.email.strip().lower()
     existing_user = await db.users.find_one({"email": email})
     if existing_user:
+        # Check if this is an employee account pre-created / imported by HR Admin
+        if payload.role == "employee" and existing_user.get("role") == "employee":
+            if not payload.passkey or not payload.passkey.strip():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Workspace passkey is required to activate your employee account.",
+                )
+            normalised = _normalize_passkey(payload.passkey)
+            company = await db.companies.find_one({"passkey": normalised})
+            user_comp_id = str(existing_user.get("companyId") or existing_user.get("company_id") or "")
+            if not company or str(company["_id"]) != user_comp_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Workspace passkey does not match this employee account's company.",
+                )
+            # Legitimate employee claiming / activating account
+            hashed_pwd = await async_hash_password(payload.password)
+            now = datetime.now(timezone.utc).isoformat()
+            update_data = {
+                "passwordHash": hashed_pwd,
+                "tempPassword": None,
+                "isActive": True,
+                "is_active": True,
+                "updated_at": now,
+            }
+            if payload.fullName and payload.fullName.strip():
+                update_data["fullName"] = payload.fullName.strip()
+            await db.users.update_one({"_id": existing_user["_id"]}, {"$set": update_data})
+            return SignupResponse(
+                message="Account successfully activated! You can now log in with your credentials and workspace passkey.",
+                companyId=str(company["_id"]),
+                companyName=company.get("name", "Your Company"),
+            )
+
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email address already exists.",
@@ -255,10 +289,6 @@ async def login(payload: LoginRequest, request: Request, response: Response):
     if not user.get("isActive", True):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account disabled")
 
-    is_valid = await async_verify_password(payload.password, user.get("passwordHash") or "")
-    if not is_valid:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-
     role = user.get("role", "employee")
     company_id = user.get("companyId") or user.get("company_id")
     user_id = str(user["_id"])
@@ -266,6 +296,50 @@ async def login(payload: LoginRequest, request: Request, response: Response):
 
     if role not in ("hr_admin", "employee") or not company_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user record")
+
+    # ── Workspace Passkey Verification for Employee Login ─────────────────────
+    if role == "employee" or payload.role == "employee":
+        if not payload.passkey or not payload.passkey.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Workspace passkey is required for employee login.",
+            )
+
+        company = await db.companies.find_one({"$or": [{"_id": company_id}, {"id": company_id}]})
+        if not company or not company.get("passkey"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Company workspace configuration error. Please contact your HR administrator.",
+            )
+
+        norm_user_pk = _normalize_passkey(payload.passkey)
+        norm_comp_pk = _normalize_passkey(company.get("passkey", ""))
+        if norm_user_pk != norm_comp_pk:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid workspace passkey for this company.",
+            )
+
+    # ── Password Verification ──────────────────────────────────────────────────
+    is_valid = await async_verify_password(payload.password, user.get("passwordHash") or "")
+
+    # Seamless first-time onboarding for imported employees:
+    # If the user still has an initial tempPassword (or uses their email as initial password)
+    # and has passed the secret workspace passkey verification above:
+    if not is_valid and user.get("tempPassword"):
+        if payload.password == user.get("tempPassword") or payload.password.strip().lower() == email:
+            is_valid = True
+            new_hash = await async_hash_password(payload.password)
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"passwordHash": new_hash, "tempPassword": None, "updated_at": datetime.now(timezone.utc).isoformat()}}
+            )
+
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials. If this is your first time signing in, activate your account via 'Create account' using your workspace passkey.",
+        )
 
     # Create session document in DB
     session_id = str(uuid.uuid4())

@@ -6,6 +6,8 @@ import re
 class LoginRequest(BaseModel):
     email: str = Field(..., min_length=3)
     password: str = Field(..., min_length=1)
+    passkey: Optional[str] = None
+    role: Optional[str] = None
 
 
 class LoginResponse(BaseModel):
