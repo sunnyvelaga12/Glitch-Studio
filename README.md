@@ -1,4 +1,4 @@
-# 👔 Glitch HR AI (VirtualHR)
+#  Glitch HR AI (VirtualHR)
 
 > **Next-Generation Enterprise Multi-Tenant HR Intelligence Platform with 6-Level RAG Pipeline**
 
@@ -13,7 +13,7 @@
 
 ---
 
-## 🌟 Overview
+##  Overview
 
 **Glitch HR AI** (internally designated **VirtualHR**) is an enterprise-grade, multi-tenant B2B Human Resources platform. It unifies core HRIS operations—such as employee directory management, attendance tracking, leave applications, and policy administration—with a high-precision **6-Level Retrieval-Augmented Generation (RAG)** pipeline powered by **Pinecone Serverless** and **Groq / Google Gemini** LLMs.
 
@@ -26,7 +26,7 @@
 
 ---
 
-## 🏗️ System Architecture
+##  System Architecture
 
 ```mermaid
 graph TB
