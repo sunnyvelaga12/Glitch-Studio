@@ -1,3 +1,4 @@
+import asyncio
 import json
 import httpx
 import logging
@@ -323,11 +324,12 @@ AUTHORITATIVE POLICY DOCUMENTS:
 async def stream_groq_response(
     messages: List[Dict[str, str]],
     model: Optional[str] = None,
+    fallback_context: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """
     Level 6: Streaming Responses via FastAPI Server-Sent Events (SSE).
     Uses AsyncGroq client for non-blocking asynchronous streaming token deltas.
-    Yields data: {"token": token}\n\n and terminates with data: [DONE]\n\n.
+    Includes rate-limit retry and grounded context fallback.
     """
     candidate_models = [model, getattr(settings, "GROQ_MODEL_NAME", None), "qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
     seen = set()
@@ -337,20 +339,29 @@ async def stream_groq_response(
         client = get_async_groq_client()
         stream = None
         for model_name in models_to_try:
-            try:
-                stream = await client.chat.completions.create(
-                    model=model_name,
-                    messages=messages,
-                    stream=True,
-                    temperature=0.0,
-                    max_tokens=1024,
-                )
+            for attempt in range(2):
+                try:
+                    stream = await client.chat.completions.create(
+                        model=model_name,
+                        messages=messages,
+                        stream=True,
+                        temperature=0.0,
+                        max_tokens=1024,
+                    )
+                    break
+                except Exception as exc:
+                    exc_str = str(exc).lower()
+                    if "404" in exc_str or "not found" in exc_str or "decommissioned" in exc_str:
+                        logger.warning(f"Groq stream model '{model_name}' not found. Trying next fallback...")
+                        break
+                    if ("rate" in exc_str or "429" in exc_str) and attempt == 0:
+                        logger.warning(f"Groq stream model '{model_name}' hit rate limit. Waiting 1.2s before retry...")
+                        await asyncio.sleep(1.2)
+                        continue
+                    logger.warning(f"Groq stream model '{model_name}' failed: {exc}. Trying next candidate...")
+                    break
+            if stream is not None:
                 break
-            except Exception as exc:
-                if "404" in str(exc) or "not found" in str(exc).lower():
-                    logger.warning(f"Groq stream model '{model_name}' not found. Trying next fallback...")
-                    continue
-                raise exc
 
         if stream is None:
             raise RuntimeError("All candidate Groq models failed to create a stream.")
@@ -366,9 +377,17 @@ async def stream_groq_response(
 
     except Exception as exc:
         logger.error(f"Groq SSE token streaming failed: {exc}")
+        if fallback_context and fallback_context.strip():
+            clean_ctx = fallback_context.strip()
+            response_msg = f"{clean_ctx}\n\n---\n*📌 Information retrieved directly from verified company records.*"
+            payload = json.dumps({"token": response_msg})
+            yield f"data: {payload}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
         err_msg = str(exc)
-        if "rate" in err_msg.lower():
-            err_text = "System Notice: AI inference rate limit reached. Please retry in a moment."
+        if "rate" in err_msg.lower() or "429" in err_msg:
+            err_text = "The AI service is currently experiencing heavy load. Please review the **Leaves Category** or **Documents** tab directly, or retry your question in a moment."
         else:
             err_text = "I cannot find this information in the current HR policies."
         err_payload = json.dumps({"token": err_text})
@@ -531,11 +550,11 @@ def generate_bot_response(
         *(_build_history(history)),
     ]
 
-    if settings.active_provider == "groq":
-        response = _call_groq_chat(message=message, conversation_history=conversation_history)
-    else:
-        client = _create_genai_client()
-        try:
+    try:
+        if settings.active_provider == "groq":
+            response = _call_groq_chat(message=message, conversation_history=conversation_history)
+        else:
+            client = _create_genai_client()
             gemini_history = [
                 {"role": item["role"] if item["role"] != "assistant" else "model", "parts": [{"text": item["content"]}]}
                 for item in _build_history(history)
@@ -547,23 +566,15 @@ def generate_bot_response(
             )
             response = chat.send_message(message)
             response = response.text or ""
-        except Exception as exc:
-            # Map Google API errors to our custom error types
-            if google_exceptions is not None:
-                if isinstance(exc, google_exceptions.ResourceExhausted):
-                    raise AIRateLimitError(
-                        "Gemini API quota exceeded. Please try again later."
-                    ) from exc
-                if isinstance(exc, (google_exceptions.Unauthenticated, google_exceptions.InvalidArgument)):
-                    raise AIServiceError(
-                        f"Gemini API configuration error: {str(exc)}"
-                    ) from exc
-                if isinstance(exc, google_exceptions.GoogleAPIError):
-                    raise AIServiceError(
-                        f"Gemini API error: {str(exc)}"
-                    ) from exc
-            # Re-raise if not a Google API error
-            raise
+    except Exception as exc:
+        logger.warning(f"AI provider invocation failed ({exc}). Delivering grounded fallback response.")
+        return generate_fallback_response(
+            message,
+            policy_document_text,
+            employee_context=employee_context_dict,
+            company_name=company_name,
+            hr_email=hr_email,
+        )
 
     # Cache the response for future identical queries
     response_cache.set(cache_key, response)

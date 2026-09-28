@@ -754,12 +754,23 @@ async def get_company_policy_text_with_rag(
             return "### 📜 Query Logs\n\nNo employee questions have been recorded yet for your company."
 
     # ── Intent 2: Company-Wide Leaves Overview (HR ADMIN ONLY) ────────────────
-    leave_admin_keywords = [
-        "leave request", "leave application", "leaves applied", "pending leave",
-        "who applied for leave", "who is on leave", "leaves category", "all leaves",
-        "leaves list", "leave approvals", "leave status of employee"
-    ]
-    if role in ("hr_admin", "hr", "admin", "super_admin") and any(k in query_lower for k in leave_admin_keywords):
+    is_leave_admin_query = False
+    if role in ("hr_admin", "hr", "admin", "super_admin"):
+        leave_admin_phrases = [
+            "leave request", "leave application", "leaves applied", "pending leave",
+            "who applied for leave", "who is on leave", "leaves category", "all leaves",
+            "leaves list", "leave approvals", "leave status of employee", "leaves to approve",
+            "leave to approve", "need to approve", "to approve", "pending approval", "leave pending",
+            "approve leave", "approve leaves"
+        ]
+        if any(p in query_lower for p in leave_admin_phrases):
+            is_leave_admin_query = True
+        elif ("leave" in query_lower or "leaves" in query_lower) and any(
+            w in query_lower for w in ["approve", "approv", "pending", "applied", "status", "review", "request", "need", "any", "action"]
+        ):
+            is_leave_admin_query = True
+
+    if is_leave_admin_query:
         cursor = db.leave_requests.find({
             "$or": [{"company_id": company_id}, {"companyId": company_id}]
         }).sort("applied_at", -1).limit(25)
@@ -784,9 +795,10 @@ async def get_company_policy_text_with_rag(
                 st = (l.get("status") or "pending").upper()
                 rows.append(f"| **{ename}** | {ltype} | {dates} | {days}d | {reason} | `{st}` |")
 
+            rows.append("\n👉 *You can review, approve, or reject these requests in real-time under the **Leaves Category** tab.*")
             return "\n".join(rows)
         else:
-            return "### 📋 Employee Leave Applications\n\nNo leave applications have been submitted by employees in this workspace yet."
+            return "### 📋 Employee Leave Applications\n\nThere are currently no employee leave applications submitted in this workspace."
 
     # ── Intent 3: Person / Employee Directory Search (HR ADMIN ONLY) ──────────
     person_keywords = [

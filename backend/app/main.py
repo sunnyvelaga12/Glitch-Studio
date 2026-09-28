@@ -552,6 +552,18 @@ async def chat_stream_endpoint(
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
         )
 
+    # If policy engine returned live administrative table (Leaves Overview or Query Logs), stream directly
+    if "### 📋 Employee Leave Applications" in policy_doc_text or "### 📜 Query Logs" in policy_doc_text:
+        async def stream_admin_table():
+            payload = json.dumps({"token": policy_doc_text})
+            yield f"data: {payload}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(
+            stream_admin_table(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+        )
+
     # Step 2 & 3: Level 5 Hybrid Search with RRF and Parent Chunks
     from app.hybrid_search import execute_hybrid_search
     hybrid_res = await execute_hybrid_search(company_id=company_id, query=sanitized_message)
@@ -595,7 +607,7 @@ async def chat_stream_endpoint(
     ]
 
     return StreamingResponse(
-        stream_groq_response(messages),
+        stream_groq_response(messages, fallback_context=context_payload),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
