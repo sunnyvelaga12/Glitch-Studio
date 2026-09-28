@@ -226,6 +226,45 @@ async def get_employee_context(company_id: str, user_id: str | None = None, emai
                 "check_out": "06:00 PM"
             })
 
+    # Real-time submitted leave requests for this employee from MongoDB
+    user_conds = []
+    if user_id:
+        user_conds.append({"user_id": str(user_id)})
+        user_conds.append({"user_id": user_id})
+        from bson import ObjectId
+        if ObjectId.is_valid(user_id):
+            user_conds.append({"user_id": ObjectId(user_id)})
+    if user_email:
+        user_conds.append({"employee_email": user_email})
+        user_conds.append({"email": user_email})
+
+    leave_query_parts = []
+    if user_conds:
+        leave_query_parts.append({"$or": user_conds})
+    if company_id:
+        leave_query_parts.append({"$or": [{"company_id": company_id}, {"companyId": company_id}]})
+
+    l_query = {"$and": leave_query_parts} if len(leave_query_parts) > 1 else leave_query_parts[0] if leave_query_parts else {}
+    leave_cursor = db.leave_requests.find(l_query).sort("applied_at", -1).limit(10)
+    my_leaves = await leave_cursor.to_list(length=10)
+
+    pending_leaves = [l for l in my_leaves if (l.get("status") or "").lower() == "pending"]
+    approved_leaves = [l for l in my_leaves if (l.get("status") or "").lower() == "approved"]
+    rejected_leaves = [l for l in my_leaves if (l.get("status") or "").lower() == "rejected"]
+
+    recent_leaves_desc = []
+    for l in my_leaves[:5]:
+        st = (l.get("status") or "pending").upper()
+        l_type = (l.get("leave_type") or "leave").replace("_", " ").title()
+        dates = f"{l.get('from_date')} to {l.get('to_date')}"
+        days = l.get("days", 1)
+        reason = l.get("reason", "N/A")
+        reviewed_by = l.get("reviewed_by")
+        rev_info = f" (Reviewed by {reviewed_by})" if reviewed_by and st != "PENDING" else ""
+        recent_leaves_desc.append(f"- **{l_type}** ({dates}, {days} day(s)): **Status: {st}**{rev_info} | Reason: *{reason}*")
+
+    recent_leaves_md = "\n".join(recent_leaves_desc) if recent_leaves_desc else "- *No leave applications submitted yet.*"
+
     ctx_dict = {
         "full_name": full_name,
         "email": user_email,
@@ -245,6 +284,24 @@ async def get_employee_context(company_id: str, user_id: str | None = None, emai
             "floating_holidays_remaining": float_rem,
             "floating_holidays_total": float_tot,
         },
+        "leave_applications": {
+            "total_submitted": len(my_leaves),
+            "pending_count": len(pending_leaves),
+            "approved_count": len(approved_leaves),
+            "rejected_count": len(rejected_leaves),
+            "recent_applications": [
+                {
+                    "id": l.get("id") or str(l.get("_id")),
+                    "leave_type": l.get("leave_type"),
+                    "from_date": l.get("from_date"),
+                    "to_date": l.get("to_date"),
+                    "days": l.get("days"),
+                    "status": (l.get("status") or "pending").lower(),
+                    "reason": l.get("reason"),
+                }
+                for l in my_leaves[:5]
+            ]
+        },
         "attendance_summary": {
             "recent_records": att_records,
             "compliance_rate": "100%",
@@ -263,6 +320,12 @@ async def get_employee_context(company_id: str, user_id: str | None = None, emai
         f"- **Sick Leave (SL)**: {sick_rem} days remaining (out of {sick_tot})\n"
         f"- **Privilege Leave (PL)**: {priv_rem} days remaining (out of {priv_tot})\n"
         f"- **Floating Holidays (FH)**: {float_rem} days remaining (out of {float_tot})\n\n"
+        f"### 📋 Personal Leave Applications & Current Status\n"
+        f"- **Pending Review**: {len(pending_leaves)} application(s)\n"
+        f"- **Approved**: {len(approved_leaves)} application(s)\n"
+        f"- **Rejected**: {len(rejected_leaves)} application(s)\n"
+        f"**Recent Submissions:**\n"
+        f"{recent_leaves_md}\n\n"
         f"### ⏱️ Attendance Log (Past 5 Days)\n"
         f"- Today / Recent 5 Days Status: 100% Compliance (4 Present, 1 WFH)\n"
         f"- Latest Log: {att_records[0]['date']} — {att_records[0].get('status', 'Present')} (09:30 AM - 06:00 PM)"
@@ -611,7 +674,37 @@ async def get_company_policy_text_with_rag(
     db = get_db()
     query_lower = query.lower().strip()
 
-    # Intent 1: Query Logs / Questions Asked Intent (HR ADMIN ONLY)
+    # ── Strict Employee Privacy Guardrail ─────────────────────────────────────
+    # If a regular employee asks about another employee's leaves, status, or personal records:
+    if role == "employee":
+        colleague_patterns = [
+            "who is ", "about ", "data of ", "info of ", "details of ", "tell me about ",
+            "is on leave", "is taking leave", "leave of ", "leave status of ",
+            "leaves of ", "how many leaves does ", "attendance of ", "phone of ", "email of ",
+            "contact of ", "salary of ", "compensation of ", "profile of ", "search employee",
+            "all employees", "employee list", "staff list", "other employee", "colleague"
+        ]
+        self_tokens = [
+            "my leave", "my status", "my balance", "about my", "tell me about my",
+            "my manager", "who is my manager", "can i take", "how many leaves do i have",
+            "my attendance", "my profile", "am i on leave", "did my leave get approved",
+            "what is my", "show my", "check my", "my request"
+        ]
+        is_self_query = any(st in query_lower for st in self_tokens)
+        asks_about_others = any(cp in query_lower for cp in colleague_patterns)
+
+        if not is_self_query and asks_about_others:
+            return (
+                "### 🔒 Employee Data Privacy & Confidentiality Notice\n\n"
+                "In strict compliance with company data privacy standards, **regular employees cannot access records, leave applications, attendance, or personal details of colleagues**.\n\n"
+                "💡 **What you can view:**\n"
+                "- Your own leave balance and personal leave request statuses (available in the **Leaves** tab)\n"
+                "- Your personal attendance log and work mode\n"
+                "- Authoritative company HR policies, holidays, and benefit guidelines\n\n"
+                "If you need to coordinate with a team member, please connect with them directly via official channels or contact your Line Manager."
+            )
+
+    # ── Intent 1: Query Logs / Questions Asked (HR ADMIN ONLY) ────────────────
     if any(k in query_lower for k in ["quer", "asked", "history", "recent question", "what did he ask", "what did they ask", "what questions"]):
         if role != "hr_admin":
             return (
@@ -622,7 +715,6 @@ async def get_company_policy_text_with_rag(
         cursor = db.query_logs.find({"company_id": company_id}).sort("timestamp", -1).limit(10)
         logs = await cursor.to_list(length=10)
         if logs:
-            # Batch fetch missing employee names to eliminate N+1 queries
             missing_uids = list({
                 l.get("user_id")
                 for l in logs
@@ -661,7 +753,42 @@ async def get_company_policy_text_with_rag(
         else:
             return "### 📜 Query Logs\n\nNo employee questions have been recorded yet for your company."
 
-    # Intent 2: Person / Employee Data Search Intent
+    # ── Intent 2: Company-Wide Leaves Overview (HR ADMIN ONLY) ────────────────
+    leave_admin_keywords = [
+        "leave request", "leave application", "leaves applied", "pending leave",
+        "who applied for leave", "who is on leave", "leaves category", "all leaves",
+        "leaves list", "leave approvals", "leave status of employee"
+    ]
+    if role in ("hr_admin", "hr", "admin", "super_admin") and any(k in query_lower for k in leave_admin_keywords):
+        cursor = db.leave_requests.find({
+            "$or": [{"company_id": company_id}, {"companyId": company_id}]
+        }).sort("applied_at", -1).limit(25)
+        company_leaves = await cursor.to_list(length=25)
+        if company_leaves:
+            pending_count = len([l for l in company_leaves if (l.get("status") or "").lower() == "pending"])
+            approved_count = len([l for l in company_leaves if (l.get("status") or "").lower() == "approved"])
+            rejected_count = len([l for l in company_leaves if (l.get("status") or "").lower() == "rejected"])
+
+            rows = [
+                f"### 📋 Employee Leave Applications Overview\n",
+                f"**Total Applications**: {len(company_leaves)} | **Pending Approval**: {pending_count} | **Approved**: {approved_count} | **Rejected**: {rejected_count}\n",
+                "| Employee | Leave Type | Duration / Dates | Days | Reason | Status |",
+                "| :--- | :--- | :--- | :--- | :--- | :--- |"
+            ]
+            for l in company_leaves:
+                ename = l.get("employee_name") or l.get("user_id") or "Employee"
+                ltype = (l.get("leave_type") or "leave").replace("_", " ").title()
+                dates = f"{l.get('from_date')} to {l.get('to_date')}"
+                days = l.get("days", 1)
+                reason = (l.get("reason") or "N/A").replace("|", "-")[:35]
+                st = (l.get("status") or "pending").upper()
+                rows.append(f"| **{ename}** | {ltype} | {dates} | {days}d | {reason} | `{st}` |")
+
+            return "\n".join(rows)
+        else:
+            return "### 📋 Employee Leave Applications\n\nNo leave applications have been submitted by employees in this workspace yet."
+
+    # ── Intent 3: Person / Employee Directory Search (HR ADMIN ONLY) ──────────
     person_keywords = [
         "who is", "email of", "phone of", "contact of", "manager of", "find employee",
         "search directory", "employee profile", "team member", "employees data", "employee data",
@@ -672,7 +799,6 @@ async def get_company_policy_text_with_rag(
     full_policy_text = await get_company_policy_document_text(company_id)
 
     if is_person_search:
-        # STRICT PRIVACY RULE: Regular employees cannot dump employee directory data!
         if role != "hr_admin":
             return (
                 "### 🔒 Privacy Restricted\n\n"
@@ -692,7 +818,7 @@ async def get_company_policy_text_with_rag(
             matched_emps = []
 
             async for emp in db.users.find({
-                "companyId": company_id,
+                "$or": [{"companyId": company_id}, {"company_id": company_id}],
                 "role": "employee",
                 "$or": [
                     {"fullName": {"$regex": rf"\b{re.escape(full_phrase)}\b", "$options": "i"}},
@@ -704,7 +830,7 @@ async def get_company_policy_text_with_rag(
             if matched_emps:
                 return format_employees_markdown(matched_emps, f"Results for '{full_phrase}'")
 
-    # Intent 3: Policy RAG Retrieval — check stored document chunks first
+    # ── Intent 4: Policy RAG Retrieval ────────────────────────────────────────
     matched_chunk_text = await search_company_document_chunks(company_id, query)
     if matched_chunk_text:
         logger.info(f"Retrieved matching document chunks for query '{query}' (company_id={company_id})")

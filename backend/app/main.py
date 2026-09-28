@@ -512,8 +512,12 @@ async def chat_stream_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 
-    # Step 1: Preemptive Algorithmic Guardrails
-    refusal = check_algorithmic_guardrails(sanitized_message)
+    user_role = user.get("role", "employee")
+    user_id = user.get("sub") or user.get("id")
+    user_email = user.get("email") or ""
+
+    # Step 1: Preemptive Algorithmic Guardrails with role awareness
+    refusal = check_algorithmic_guardrails(sanitized_message, role=user_role)
     if refusal:
         async def stream_refusal():
             payload = json.dumps({"token": refusal})
@@ -521,6 +525,29 @@ async def chat_stream_endpoint(
             yield "data: [DONE]\n\n"
         return StreamingResponse(
             stream_refusal(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+        )
+
+    # Step 1b: Fetch Employee Context & RAG Routing (checks colleague privacy and leave queries)
+    emp_ctx_dict, _ = await get_employee_context(company_id, user_id, user_email)
+    policy_doc_text = await get_company_policy_text_with_rag(
+        company_id,
+        sanitized_message,
+        role=user_role,
+        user_id=user_id,
+        user_email=user_email,
+        employee_context=emp_ctx_dict,
+    )
+
+    # If policy engine returned privacy refusal, stream immediately
+    if "### 🔒" in policy_doc_text or "Privacy Restricted" in policy_doc_text:
+        async def stream_privacy_refusal():
+            payload = json.dumps({"token": policy_doc_text})
+            yield f"data: {payload}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(
+            stream_privacy_refusal(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
         )
@@ -545,17 +572,15 @@ async def chat_stream_endpoint(
         )
 
     context_payload = hybrid_res.get("context_text", "")
+    if policy_doc_text and policy_doc_text.strip():
+        context_payload = f"{policy_doc_text}\n\n---\n\n{context_payload}"
     disclaimer_required = hybrid_res.get("disclaimer_required", False)
-
-    # Step 4: Real-time Employee Profile from MongoDB
-    user_id = user.get("sub") or user.get("id")
-    user_email = user.get("email") or ""
-    emp_ctx_dict, _ = await get_employee_context(company_id, user_id, user_email)
 
     system_prompt = construct_hr_system_prompt(
         employee_state=emp_ctx_dict,
         retrieved_context=context_payload,
         disclaimer_required=disclaimer_required,
+        role=user_role,
     )
 
     # Step 5: Build conversation messages and initiate streaming

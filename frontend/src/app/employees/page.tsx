@@ -500,7 +500,10 @@ export default function EmployeeDashboard() {
   const [loading, setLoading] = useState(false);
   const [leaveApplication, setLeaveApplication] = useState({ from_date: "", to_date: "", reason: "", leave_type: "casual_leave" });
   const [leaveSuccess, setLeaveSuccess] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
   const [submittingLeave, setSubmittingLeave] = useState(false);
+  const [refreshingLeaves, setRefreshingLeaves] = useState(false);
+  const [leaveFilter, setLeaveFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [myLeaveRequests, setMyLeaveRequests] = useState<any[]>([]);
 
   useEffect(() => {
@@ -532,13 +535,88 @@ export default function EmployeeDashboard() {
         });
       }
       if (attendanceRes.ok) setAttendance(await attendanceRes.json());
-      if (requestsRes.ok) setMyLeaveRequests(await requestsRes.json());
+      if (requestsRes.ok) {
+        const data = await requestsRes.json();
+        setMyLeaveRequests(Array.isArray(data) ? data : []);
+      }
     } catch (e) { console.error(e); } finally { setLoading(false); }
+  };
+
+  const handleRefreshLeaves = async () => {
+    if (!token) return;
+    setRefreshingLeaves(true);
+    try {
+      const [leaveRes, requestsRes] = await Promise.all([
+        fetch(`${BACKEND_URL}/api/v1/employees/leave-balance/me`, { credentials: "include", headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${BACKEND_URL}/api/v1/employees/leaves/my-requests`, { credentials: "include", headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (leaveRes.ok) {
+        const d = await leaveRes.json();
+        setLeaveBalance({
+          casual_leave_remaining: d.casual_leave_remaining ?? 12,
+          sick_leave_remaining: d.sick_leave_remaining ?? 8,
+          privilege_leave_remaining: d.privilege_leave_remaining ?? 15,
+          floating_holidays_remaining: d.floating_holidays_remaining ?? 3,
+        });
+      }
+      if (requestsRes.ok) {
+        const data = await requestsRes.json();
+        setMyLeaveRequests(Array.isArray(data) ? data : []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setRefreshingLeaves(false);
+    }
+  };
+
+  const getRequestedDays = () => {
+    if (!leaveApplication.from_date || !leaveApplication.to_date) return 0;
+    const d1 = new Date(leaveApplication.from_date);
+    const d2 = new Date(leaveApplication.to_date);
+    if (isNaN(d1.getTime()) || isNaN(d2.getTime()) || d2 < d1) return 0;
+    const diffTime = d2.getTime() - d1.getTime();
+    return Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
+  };
+
+  const getAvailableBalance = (type: string) => {
+    if (!leaveBalance) return 0;
+    switch (type) {
+      case "casual_leave":
+      case "casual":
+        return leaveBalance.casual_leave_remaining ?? 0;
+      case "sick_leave":
+      case "sick":
+        return leaveBalance.sick_leave_remaining ?? 0;
+      case "privilege_leave":
+      case "privilege":
+        return leaveBalance.privilege_leave_remaining ?? 0;
+      case "floating_holiday":
+      case "floating":
+        return leaveBalance.floating_holidays_remaining ?? 0;
+      default:
+        return 0;
+    }
   };
 
   const handleLeaveApplication = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!leaveApplication.from_date || !leaveApplication.to_date) { alert("Please select both start and end dates."); return; }
+    setLeaveError(null);
+    if (!leaveApplication.from_date || !leaveApplication.to_date) {
+      setLeaveError("Please select both start date and end date.");
+      return;
+    }
+    const days = getRequestedDays();
+    if (days <= 0) {
+      setLeaveError("End date must be on or after start date.");
+      return;
+    }
+    const available = getAvailableBalance(leaveApplication.leave_type);
+    if (days > available) {
+      setLeaveError(`Requested ${days} day(s) exceeds your remaining balance of ${available} day(s) for this leave type.`);
+      return;
+    }
+
     setSubmittingLeave(true);
     try {
       const idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID
@@ -563,13 +641,13 @@ export default function EmployeeDashboard() {
       }
 
       setLeaveSuccess(true);
-      setTimeout(() => setLeaveSuccess(false), 4000);
+      setTimeout(() => setLeaveSuccess(false), 5000);
       setLeaveApplication({ from_date: "", to_date: "", reason: "", leave_type: "casual_leave" });
 
       // Authoritative state refetch from backend
       await loadEmployeeData(token);
     } catch (err: any) {
-      alert(`Error: ${err.message}`);
+      setLeaveError(err.message || "An unexpected error occurred while applying for leave.");
     } finally {
       setSubmittingLeave(false);
     }
@@ -782,92 +860,253 @@ export default function EmployeeDashboard() {
 
         {/* ── LEAVES TAB ───────────────────────────────────────────────────── */}
         {activeTab === "leaves" && (
-          <div className="light-card animate-fade-in" style={{ padding: "24px 28px" }}>
-            <h2 style={{ margin: "0 0 20px", fontSize: 15, fontWeight: 800, color: T.textPrimary, display: "flex", alignItems: "center", gap: 6 }}>
-              <Icon name="event_available" size={20} color="#1a73e8" /> Apply for Leave
-            </h2>
-            {leaveSuccess && (
-              <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 12, background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#15803d", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }} className="animate-fade-in">
-                <Icon name="check_circle" size={18} color="#15803d" /> Leave application submitted successfully! Your manager will review it.
-              </div>
-            )}
-            <form onSubmit={handleLeaveApplication} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16 }}>
-              {[
-                { label: "Leave Type", isSelect: true, key: "leave_type" },
-                { label: "Start Date", isDate: true, key: "from_date" },
-                { label: "End Date", isDate: true, key: "to_date" },
-                { label: "Reason", isText: true, key: "reason" },
-              ].map(f => (
-                <div key={f.key} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: T.textSecondary, textTransform: "uppercase", letterSpacing: "0.06em" }}>{f.label}</label>
-                  {f.isSelect ? (
-                    <select value={leaveApplication.leave_type} onChange={e => setLeaveApplication({ ...leaveApplication, leave_type: e.target.value })} className="light-select" style={{ width: "100%", height: 44 }}>
-                      <option value="casual_leave">Casual Leave</option>
-                      <option value="sick_leave">Sick Leave</option>
-                      <option value="privilege_leave">Privilege Leave</option>
-                    </select>
-                  ) : (
-                    <input type={f.isDate ? "date" : "text"}
-                      value={(leaveApplication as any)[f.key]}
-                      onChange={e => setLeaveApplication({ ...leaveApplication, [f.key]: e.target.value })}
-                      placeholder={f.isText ? "Brief reason…" : undefined}
-                      className="light-input"
-                      style={{ height: 44 }}
-                    />
-                  )}
-                </div>
-              ))}
-              <div style={{ gridColumn: "1/-1", paddingTop: 4 }}>
-                <button type="submit" disabled={submittingLeave}
-                  style={{ padding: "11px 28px", borderRadius: 24, border: "none", background: "#1a73e8", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer", boxShadow: "0 4px 14px rgba(26,115,232,.25)", display: "flex", alignItems: "center", gap: 6, opacity: submittingLeave ? 0.5 : 1 }}>
-                  <Icon name="send" size={16} color="#fff" />
-                  <span>{submittingLeave ? "Submitting…" : "Submit Leave Application"}</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }} className="animate-fade-in">
+            {/* Live Leave Balance Cards */}
+            <div className="light-card" style={{ padding: "20px 24px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <p style={{ margin: 0, fontSize: 15, fontWeight: 800, color: T.textPrimary, display: "flex", alignItems: "center", gap: 8 }}>
+                  <Icon name="event_available" size={20} color="var(--google-blue)" />
+                  <span>My Leave Balances</span>
+                </p>
+                <button
+                  onClick={handleRefreshLeaves}
+                  disabled={refreshingLeaves}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 20,
+                    border: `1px solid ${T.cardBorder}`, background: "#fff", color: T.textSecondary,
+                    fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "all 0.15s"
+                  }}
+                  title="Refresh leave balance and requests"
+                >
+                  <Icon name="refresh" size={16} color={T.textSecondary} className={refreshingLeaves ? "animate-spin" : ""} />
+                  <span>{refreshingLeaves ? "Syncing..." : "Sync"}</span>
                 </button>
               </div>
-            </form>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12 }}>
+                {[
+                  { label: "Casual Leave", val: leaveBalance?.casual_leave_remaining ?? 12, color: "var(--google-blue-text)", bg: "var(--google-blue-container)", border: "var(--google-blue-border)" },
+                  { label: "Sick Leave", val: leaveBalance?.sick_leave_remaining ?? 8, color: "var(--google-green-text)", bg: "var(--google-green-container)", border: "var(--google-green-border)" },
+                  { label: "Privilege Leave", val: leaveBalance?.privilege_leave_remaining ?? 15, color: "var(--google-purple-text)", bg: "var(--google-purple-container)", border: "var(--google-purple-border)" },
+                  { label: "Floating Holidays", val: leaveBalance?.floating_holidays_remaining ?? 3, color: "var(--google-yellow-text)", bg: "var(--google-yellow-container)", border: "var(--google-yellow-border)" },
+                ].map(l => (
+                  <div key={l.label} style={{ padding: "16px 14px", borderRadius: 14, background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
+                    <p style={{ margin: 0, fontSize: 28, fontWeight: 900, color: l.color }}>{l.val}</p>
+                    <p style={{ margin: "4px 0 0", fontSize: 11, color: l.color, opacity: 0.9, fontWeight: 700 }}>{l.label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
 
-            {/* Submitted requests history */}
-            <div style={{ marginTop: 32, paddingTop: 24, borderTop: `1px solid ${T.cardBorder}` }}>
-              <p style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 800, color: T.textPrimary, display: "flex", alignItems: "center", gap: 6 }}>
-                <Icon name="history" size={18} color="#1a73e8" /> My Submitted Leave Requests
-              </p>
-              {myLeaveRequests.length === 0 ? (
-                <p style={{ fontSize: 12, color: T.textMuted, margin: 0 }}>No leave applications submitted yet.</p>
-              ) : (
-                <div className="table-responsive">
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                    <thead style={{ background: T.mutedBg }}>
-                      <tr>
-                        {["Request ID", "Leave Type", "Date Range", "Days", "Reason", "Status"].map(h => (
-                          <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: T.textSecondary }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {myLeaveRequests.map((req, idx) => {
-                        const st = req.status || "pending";
-                        const b = st === "approved" ? { bg: "#f0fdf4", text: "#15803d", border: "#bbf7d0", label: "Approved" }
-                          : st === "rejected" ? { bg: "#fff1f2", text: "#be123c", border: "#fecdd3", label: "Rejected" }
-                            : { bg: "#fffbeb", text: "#b45309", border: "#fde68a", label: "Pending HR Review" };
-                        return (
-                          <tr key={req.id || idx} style={{ borderTop: "1px solid #f1f5f9" }}>
-                            <td style={{ padding: "11px 14px", fontWeight: 700, color: T.textPrimary }}>{req.id || "LV-001"}</td>
-                            <td style={{ padding: "11px 14px", color: "#1a73e8", fontWeight: 600 }}>{req.leave_type?.replace("_", " ").toUpperCase()}</td>
-                            <td style={{ padding: "11px 14px", color: T.textSecondary }}>{req.from_date} to {req.to_date}</td>
-                            <td style={{ padding: "11px 14px", color: T.textSecondary }}>{req.days || 1} day(s)</td>
-                            <td style={{ padding: "11px 14px", color: T.textMuted, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{req.reason || "—"}</td>
-                            <td style={{ padding: "11px 14px" }}>
-                              <span style={{ padding: "3px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700, background: b.bg, color: b.text, border: `1px solid ${b.border}` }}>
-                                {b.label}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+            {/* Apply for Leave Form Card */}
+            <div className="light-card" style={{ padding: "24px 28px" }}>
+              <h2 style={{ margin: "0 0 18px", fontSize: 15, fontWeight: 800, color: T.textPrimary, display: "flex", alignItems: "center", gap: 6 }}>
+                <Icon name="add_circle" size={20} color="#1a73e8" /> Apply for Leave
+              </h2>
+
+              {leaveSuccess && (
+                <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 12, background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#15803d", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }} className="animate-fade-in">
+                  <Icon name="check_circle" size={18} color="#15803d" />
+                  <span>Leave application submitted successfully! It is now pending HR review.</span>
                 </div>
               )}
+
+              {leaveError && (
+                <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 12, background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }} className="animate-fade-in">
+                  <Icon name="error" size={18} color="#b91c1c" />
+                  <span>{leaveError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleLeaveApplication} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: T.textSecondary, textTransform: "uppercase", letterSpacing: "0.06em" }}>Leave Type</label>
+                  <select
+                    value={leaveApplication.leave_type}
+                    onChange={e => setLeaveApplication({ ...leaveApplication, leave_type: e.target.value })}
+                    className="light-select"
+                    style={{ width: "100%", height: 44 }}
+                  >
+                    <option value="casual_leave">Casual Leave ({leaveBalance?.casual_leave_remaining ?? 12} days left)</option>
+                    <option value="sick_leave">Sick Leave ({leaveBalance?.sick_leave_remaining ?? 8} days left)</option>
+                    <option value="privilege_leave">Privilege Leave ({leaveBalance?.privilege_leave_remaining ?? 15} days left)</option>
+                    <option value="floating_holiday">Floating Holiday ({leaveBalance?.floating_holidays_remaining ?? 3} days left)</option>
+                  </select>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: T.textSecondary, textTransform: "uppercase", letterSpacing: "0.06em" }}>Start Date</label>
+                  <input
+                    type="date"
+                    value={leaveApplication.from_date}
+                    onChange={e => setLeaveApplication({ ...leaveApplication, from_date: e.target.value })}
+                    className="light-input"
+                    style={{ height: 44 }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: T.textSecondary, textTransform: "uppercase", letterSpacing: "0.06em" }}>End Date</label>
+                  <input
+                    type="date"
+                    value={leaveApplication.to_date}
+                    onChange={e => setLeaveApplication({ ...leaveApplication, to_date: e.target.value })}
+                    className="light-input"
+                    style={{ height: 44 }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: T.textSecondary, textTransform: "uppercase", letterSpacing: "0.06em" }}>Reason</label>
+                  <input
+                    type="text"
+                    value={leaveApplication.reason}
+                    onChange={e => setLeaveApplication({ ...leaveApplication, reason: e.target.value })}
+                    placeholder="Brief reason (e.g. personal, medical, vacation)…"
+                    className="light-input"
+                    style={{ height: 44 }}
+                  />
+                </div>
+
+                {/* Dynamic duration and balance badge */}
+                {leaveApplication.from_date && leaveApplication.to_date && (
+                  <div style={{ gridColumn: "1/-1", display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderRadius: 8, background: "#f8fafd", border: "1px solid #e2e8f0" }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#1a73e8" }}>
+                      Requested: {getRequestedDays()} day(s)
+                    </span>
+                    <span style={{ fontSize: 12, color: T.textSecondary }}>
+                      Available for this type: {getAvailableBalance(leaveApplication.leave_type)} day(s)
+                    </span>
+                    {getRequestedDays() > getAvailableBalance(leaveApplication.leave_type) && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#b91c1c", background: "#fee2e2", padding: "2px 8px", borderRadius: 99 }}>
+                        ⚠️ Exceeds available balance
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ gridColumn: "1/-1", paddingTop: 4 }}>
+                  <button type="submit" disabled={submittingLeave}
+                    style={{ padding: "11px 28px", borderRadius: 24, border: "none", background: "#1a73e8", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer", boxShadow: "0 4px 14px rgba(26,115,232,.25)", display: "flex", alignItems: "center", gap: 6, opacity: submittingLeave ? 0.5 : 1 }}>
+                    <Icon name="send" size={16} color="#fff" />
+                    <span>{submittingLeave ? "Submitting…" : "Submit Leave Application"}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Submitted requests history Card */}
+            <div className="light-card" style={{ padding: "24px 28px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+                <p style={{ margin: 0, fontSize: 15, fontWeight: 800, color: T.textPrimary, display: "flex", alignItems: "center", gap: 8 }}>
+                  <Icon name="history" size={20} color="#1a73e8" />
+                  <span>My Submitted Leave Requests</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: T.textMuted, background: T.mutedBg, padding: "2px 8px", borderRadius: 12 }}>
+                    {myLeaveRequests.length}
+                  </span>
+                </p>
+
+                {/* Filter Pills */}
+                <div style={{ display: "flex", gap: 6 }}>
+                  {(["all", "pending", "approved", "rejected"] as const).map(tab => {
+                    const count = tab === "all"
+                      ? myLeaveRequests.length
+                      : myLeaveRequests.filter(r => (r.status || "pending").toLowerCase() === tab).length;
+                    const active = leaveFilter === tab;
+                    return (
+                      <button
+                        key={tab}
+                        onClick={() => setLeaveFilter(tab)}
+                        style={{
+                          padding: "4px 12px", borderRadius: 16, fontSize: 11, fontWeight: 700, cursor: "pointer", border: "none",
+                          background: active ? "#1a73e8" : T.mutedBg,
+                          color: active ? "#fff" : T.textSecondary,
+                          transition: "all 0.15s"
+                        }}
+                      >
+                        {tab.charAt(0).toUpperCase() + tab.slice(1)} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {(() => {
+                const filtered = myLeaveRequests.filter(r => {
+                  if (leaveFilter === "all") return true;
+                  return (r.status || "pending").toLowerCase() === leaveFilter;
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div style={{ padding: "32px 16px", textAlign: "center", color: T.textMuted }}>
+                      <Icon name="event_busy" size={32} color={T.textMuted} />
+                      <p style={{ margin: "8px 0 0", fontSize: 13, fontWeight: 600 }}>
+                        {leaveFilter === "all" ? "No leave applications submitted yet." : `No ${leaveFilter} leave requests found.`}
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="table-responsive">
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead style={{ background: T.mutedBg }}>
+                        <tr>
+                          {["Request ID", "Leave Type", "Date Range", "Days", "Reason", "Status", "Reviewer Info"].map(h => (
+                            <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: T.textSecondary }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtered.map((req, idx) => {
+                          const rawStatus = (req.status || "pending").toLowerCase();
+                          const b = rawStatus === "approved"
+                            ? { bg: "#f0fdf4", text: "#15803d", border: "#bbf7d0", label: "Approved" }
+                            : rawStatus === "rejected"
+                              ? { bg: "#fff1f2", text: "#be123c", border: "#fecdd3", label: "Rejected" }
+                              : { bg: "#fffbeb", text: "#b45309", border: "#fde68a", label: "Pending HR Review" };
+
+                          const reqId = req.id || req._id || `LV-${idx + 1}`;
+                          const formattedType = (req.leave_type || "casual_leave").replace(/_/g, " ").toUpperCase();
+                          const reviewerNote = req.reviewed_by
+                            ? `Reviewed by ${req.reviewed_by}`
+                            : rawStatus === "pending"
+                              ? "Awaiting HR approval"
+                              : "—";
+
+                          return (
+                            <tr key={reqId} style={{ borderTop: "1px solid #f1f5f9" }}>
+                              <td style={{ padding: "11px 14px", fontWeight: 700, color: T.textPrimary }}>
+                                {typeof reqId === "string" && reqId.length > 12 ? `${reqId.slice(0, 8)}...` : reqId}
+                              </td>
+                              <td style={{ padding: "11px 14px", color: "#1a73e8", fontWeight: 600 }}>
+                                {formattedType}
+                              </td>
+                              <td style={{ padding: "11px 14px", color: T.textSecondary }}>
+                                {req.from_date || req.start_date} to {req.to_date || req.end_date}
+                              </td>
+                              <td style={{ padding: "11px 14px", color: T.textSecondary, fontWeight: 600 }}>
+                                {req.days || 1} day(s)
+                              </td>
+                              <td style={{ padding: "11px 14px", color: T.textMuted, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {req.reason || "—"}
+                              </td>
+                              <td style={{ padding: "11px 14px" }}>
+                                <span style={{ padding: "4px 10px", borderRadius: 99, fontSize: 11, fontWeight: 700, background: b.bg, color: b.text, border: `1px solid ${b.border}` }}>
+                                  {b.label}
+                                </span>
+                              </td>
+                              <td style={{ padding: "11px 14px", color: T.textSecondary, fontSize: 11 }}>
+                                {reviewerNote}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}

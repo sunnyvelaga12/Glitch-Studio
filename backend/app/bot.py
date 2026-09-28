@@ -176,13 +176,17 @@ def close_groq_client() -> None:
 # Level 6: Grounded Prompt Engineering & Algorithmic Guardrails
 # ============================================================================
 
-def check_algorithmic_guardrails(query: str) -> Optional[str]:
+def check_algorithmic_guardrails(query: str, role: str = "employee") -> Optional[str]:
     """
     Level 6: Algorithmic Guardrails and Preemptive Refusal.
-    Preemptively intercepts queries requesting out-of-scope or sensitive legal/payroll data
+    Preemptively intercepts queries requesting out-of-scope or sensitive legal/colleague data
     and returns a compliant refusal without invoking the LLM.
+    Enforces strict role-based access control (RBAC):
+    - Regular employees are blocked from querying other employees' leaves or personal info.
+    - HR Admins are authorized to view employee leaves and directory information.
     """
-    q = query.lower()
+    q = query.lower().strip()
+
     # Refusal: Other employees' confidential salary / payroll
     if any(k in q for k in ["ceo compensation", "ceo salary", "salary of ", "compensation of ", "how much does my colleague", "what does my manager earn", "payroll list", "all salaries"]):
         return (
@@ -198,6 +202,29 @@ def check_algorithmic_guardrails(query: str) -> Optional[str]:
             "Please refer to the internal Dispute Resolution and Grievance Policy or reach out to legal@glitch.com."
         )
 
+    # Refusal: Regular employee asking about colleague/other employee data or leaves
+    if role == "employee":
+        colleague_triggers = [
+            "who is ", "about ", "data of ", "info of ", "details of ", "tell me about ",
+            "is on leave", "is taking leave", "leave of ", "leave status of ",
+            "leaves of ", "how many leaves does ", "attendance of ", "phone of ", "email of ",
+            "contact of ", "salary of ", "compensation of ", "profile of ", "search employee",
+            "all employees", "employee list", "staff list", "other employee", "colleague"
+        ]
+        self_tokens = [
+            "my leave", "my status", "my balance", "about my", "tell me about my",
+            "my manager", "who is my manager", "can i take", "how many leaves do i have",
+            "my attendance", "my profile", "am i on leave", "did my leave get approved",
+            "what is my", "show my", "check my", "my request"
+        ]
+        is_self = any(st in q for st in self_tokens)
+        if not is_self and any(ct in q for ct in colleague_triggers):
+            return (
+                "🔒 **Access Restricted**: In compliance with company privacy policy and data protection, "
+                "employees cannot access records, leave applications, attendance, or personal details of colleagues. "
+                "You can only view your own records in the **Leaves** and **Overview** tabs, or contact HR directly."
+            )
+
     return None
 
 
@@ -205,10 +232,11 @@ def construct_hr_system_prompt(
     employee_state: Optional[Dict[str, Any]],
     retrieved_context: str,
     disclaimer_required: bool = False,
+    role: str = "employee",
 ) -> str:
     """
     Constructs a heavily grounded, ChatGPT-grade system prompt integrating real-time DB state and retrieved context.
-    Enforces Zero Hallucination, Mandatory Inline Citations, and Polished Conversational Prose.
+    Enforces Zero Hallucination, Mandatory Inline Citations, Role-Based Access Isolation, and Polished Conversational Prose.
     """
     emp = employee_state or {}
     emp_name = emp.get("full_name") or emp.get("fullName") or emp.get("name") or "Employee"
@@ -228,6 +256,13 @@ def construct_hr_system_prompt(
     priv_tot = balances.get("privilege_leave_total", 20)
     float_bal = balances.get("floating_holidays_remaining", balances.get("floating", 3))
 
+    leave_apps = emp.get("leave_applications", {})
+    pending_apps = leave_apps.get("pending_count", 0)
+    approved_apps = leave_apps.get("approved_count", 0)
+    rejected_apps = leave_apps.get("rejected_count", 0)
+    recent_apps_list = leave_apps.get("recent_applications", [])
+    recent_apps_summary = ", ".join([f"{a.get('leave_type', 'leave')} ({a.get('days')}d, {a.get('status').upper()})" for a in recent_apps_list]) if recent_apps_list else "None submitted yet"
+
     disclaimer_instruction = ""
     if disclaimer_required:
         disclaimer_instruction = (
@@ -235,33 +270,50 @@ def construct_hr_system_prompt(
             "Please conclude your answer with: \"*This appears related, but please verify with HR.*\""
         )
 
+    # Strict role-based isolation instructions
+    is_hr = role in ("hr_admin", "hr", "admin", "super_admin")
+    if is_hr:
+        role_instructions = """ROLE-BASED AUTHORIZATION: HR ADMINISTRATOR
+- You are speaking with an authenticated HR Administrator.
+- HR Administrators have full clearance to access organization-wide employee records, company leave applications, approval statuses, attendance records, and directory details.
+- When asked about employee leaves or pending requests, provide complete, accurate overviews based on the retrieved records."""
+    else:
+        role_instructions = f"""ROLE-BASED AUTHORIZATION: REGULAR EMPLOYEE ({emp_name})
+- You are speaking with a regular employee: {emp_name} ({emp_id}).
+- STRICT DATA ISOLATION & PRIVACY INVARIANT:
+  1. The user is authorized ONLY to ask about:
+     a) Their own personal leave balance ({casual_bal} Casual, {sick_bal} Sick, {priv_bal} Privilege, {float_bal} Floating),
+     b) Their own submitted leave requests (Pending: {pending_apps}, Approved: {approved_apps}, Rejected: {rejected_apps}),
+     c) Their own attendance and reporting manager ({manager}),
+     d) Universal company-wide HR policies.
+  2. ABSOLUTE REFUSAL OF COLLEAGUE RECORDS: Under NO circumstances should you disclose or discuss another employee's (Employee B's) leave status, leave applications, attendance, salary, contact details, or performance. If asked about another colleague, you MUST politely refuse:
+     "🔒 For employee data privacy and protection, I cannot disclose information or leave details about other employees. You can view your own records or contact HR directly." """
+
     return f"""You are the official HR AI Assistant for this organization.
-Your mission is to deliver ChatGPT-grade, articulate, beautifully structured, and accurate HR guidance based strictly on the authoritative policy documents and the logged-in employee's real-time company record.
+Your mission is to deliver ChatGPT-grade, articulate, beautifully structured, and accurate HR guidance based strictly on the authoritative policy documents and the logged-in user's real-time company record.
 
-RESPONSE STYLE & COMMUNICATION STANDARDS (ChatGPT-Style Excellence):
-1. DIRECT ANSWER FIRST: Begin immediately with a clear, concise, and direct answer to the user's question in natural, friendly prose. Do not stall or repeat their question back to them.
-2. ELEGANT STRUCTURE:
-   - Use clean Markdown headers (### Summary, ### Key Guidelines, ### Approval Workflow) to break up concepts.
-   - Use concise bullet points with **bold lead-ins** for effortless scanning.
-   - Use clean Markdown tables whenever comparing figures, leave days, timelines, expense caps, or office hours.
-3. CONTEXTUAL INTELLIGENCE (Personalized vs. Universal):
-   - PERSONALIZED QUERIES (Leave balances, time-off requests, manager sign-offs, WFH/remote eligibility, appraisals):
-     Naturally personalize the response using the employee's real profile (e.g., greet {emp_name}, reference their manager {manager}, cite their {casual_bal} remaining Casual Leaves, or address their {dept} department).
-   - UNIVERSAL POLICIES (Dress code, core office hours, company holidays, travel reimbursement, medical insurance terms):
-     Answer with crisp, authoritative company guidelines directly from the policy documents without forcing awkward personal references.
-4. ACTIONABLE GUIDANCE: Where relevant, guide the employee on exact next steps (e.g., "You can submit this request in the Leaves tab above for {manager}'s review.").
-5. ACCURACY & INTEGRITY:
-   - ZERO HALLUCINATION: If the policy documents do not contain the answer, politely state: "I cannot find this information in the current HR policies."
-   - Every factual rule must cite the source policy (e.g., [Source: HR Policy Manual]).
-   - Strictly refuse inquiries about other employees' private salaries or confidential data.{disclaimer_instruction}
+{role_instructions}
 
-LOGGED-IN EMPLOYEE PROFILE (Real-Time Database Context):
+RESPONSE STYLE & COMMUNICATION STANDARDS:
+1. DIRECT ANSWER FIRST: Begin immediately with a clear, concise, and direct answer in natural, professional, and friendly prose.
+2. ACCURATE LEAVE APPLICATION STATUS: When the employee asks about their leave status, balance, or requests, reference their real records:
+   - Remaining balances: {casual_bal} Casual, {sick_bal} Sick, {priv_bal} Privilege, {float_bal} Floating.
+   - Applications: {pending_apps} Pending, {approved_apps} Approved, {rejected_apps} Rejected ({recent_apps_summary}).
+3. ELEGANT STRUCTURE:
+   - Use clean Markdown headers (### Summary, ### Status, ### Guidelines) to structure concepts.
+   - Use concise bullet points with **bold lead-ins**.
+   - Use clean Markdown tables when comparing figures or policy terms.
+4. ZERO HALLUCINATION: If the policy documents or records do not contain the answer, politely state: "I cannot find this information in the current HR policies."
+5. Every factual rule must cite the source policy (e.g., [Source: HR Policy Manual]).{disclaimer_instruction}
+
+LOGGED-IN USER PROFILE (Real-Time Database Context):
 - Name: {emp_name}
 - Employee Code: {emp_id}
-- Department: {dept} | Designation: {role_title}
+- Role/Designation: {role_title} | Department: {dept}
 - Reporting Manager: {manager}
 - Work Mode: {work_mode} | Location: {office_loc}
 - Personal Leave Balances: {casual_bal} Casual (of {casual_tot}), {sick_bal} Sick (of {sick_tot}), {priv_bal} Privilege (of {priv_tot}), {float_bal} Floating Holidays
+- Personal Leave Requests: {pending_apps} Pending, {approved_apps} Approved, {rejected_apps} Rejected (Recent: {recent_apps_summary})
 
 AUTHORITATIVE POLICY DOCUMENTS:
 {retrieved_context}
@@ -427,10 +479,11 @@ def generate_bot_response(
     user_id: str | None = None,
     role: str | None = None,
 ) -> str:
-    # Level 6: Algorithmic Guardrails Check
-    guardrail_refusal = check_algorithmic_guardrails(message)
+    # Level 6: Algorithmic Guardrails Check with role
+    user_role = role or "employee"
+    guardrail_refusal = check_algorithmic_guardrails(message, role=user_role)
     if guardrail_refusal:
-        logger.info("Algorithmic guardrail intercepted query", extra={"company_id": company_id})
+        logger.info("Algorithmic guardrail intercepted query", extra={"company_id": company_id, "role": user_role})
         return guardrail_refusal
 
     if not settings.is_api_configured:
@@ -448,6 +501,7 @@ def generate_bot_response(
         system_instruction = construct_hr_system_prompt(
             employee_state=employee_context_dict,
             retrieved_context=policy_document_text,
+            role=user_role,
         )
     else:
         system_instruction = get_system_instruction(

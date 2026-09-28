@@ -50,6 +50,12 @@ test_uploads_tmp/
 uploads/
 load_test_results.json
 
+# Raw Data & Seed Dumps (operational data lives in MongoDB, not the codebase)
+data/
+*.csv
+*.xlsx
+*.tsv
+
 # IDEs
 .vscode/
 .idea/

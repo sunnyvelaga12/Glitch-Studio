@@ -190,6 +190,18 @@ COLUMN_MAP: Dict[str, str] = {
     "employmentstatus": "status",
     "status": "status",
     "empstatus": "status",
+    # Skills & Certifications
+    "skills": "skills",
+    "skill": "skills",
+    "certifications": "certifications",
+    "certification": "certifications",
+    "certs": "certifications",
+    # Ratings and Experience
+    "performancerating": "performanceRating",
+    "rating": "performanceRating",
+    "yearswithcompany": "yearsWithCompany",
+    "experience": "yearsWithCompany",
+    "tenure": "yearsWithCompany",
 }
 
 
@@ -422,6 +434,10 @@ def _row_to_employee(row: Dict[str, Any]) -> Dict[str, Any]:
         "officeLocation": row.get("officeLocation", ""),
         "workMode": row.get("workMode", ""),
         "status": row.get("status", "Active"),
+        "skills": [s.strip() for s in row["skills"].split(";") if s.strip()] if isinstance(row.get("skills"), str) else (row.get("skills") or []),
+        "certifications": [c.strip() for c in row["certifications"].split(";") if c.strip()] if isinstance(row.get("certifications"), str) else (row.get("certifications") or []),
+        "performanceRating": float(row["performanceRating"]) if str(row.get("performanceRating", "")).replace(".", "").isdigit() else 4.0,
+        "yearsWithCompany": float(row["yearsWithCompany"]) if str(row.get("yearsWithCompany", "")).replace(".", "").isdigit() else 1.0,
     }
 
 
@@ -1223,6 +1239,10 @@ async def import_employees(
             "officeLocation": emp.get("officeLocation", ""),
             "workMode": emp.get("workMode", ""),
             "employmentStatus": emp.get("status", "Active"),
+            "skills": emp.get("skills", []),
+            "certifications": emp.get("certifications", []),
+            "performance_rating": emp.get("performanceRating", 4.0),
+            "years_with_company": emp.get("yearsWithCompany", 1.0),
         }
         
         # Check if employee already exists
@@ -1443,61 +1463,19 @@ async def get_company_leaves(
     company_id: str,
     user: dict = Depends(require_role(role="hr_admin")),
 ):
-    """Fetch all employee leave applications for a company (HR Admin)."""
+    """Fetch all employee leave applications for a company (HR Admin) from live database."""
     db = get_db()
-    cursor = db.leave_requests.find({"$or": [{"company_id": company_id}, {"company_id": {"$exists": False}}, {"company_id": None}]}).sort("applied_at", -1)
-    items = await cursor.to_list(length=100)
-    
-    # If empty, seed standard sample leaves in DB so HR dashboard and DB stay synchronized
-    if not items:
-        items = [
-            {
-                "_id": "LV-9001",
-                "id": "LV-9001",
-                "company_id": company_id,
-                "user_id": "EMP001",
-                "employee_name": "Aarav Sharma",
-                "employee_email": "aarav.sharma@nanda.ai",
-                "employee_id": "EMP001",
-                "department": "Engineering",
-                "manager_name": "Reporting Manager",
-                "leave_type": "casual_leave",
-                "from_date": "2026-08-04",
-                "to_date": "2026-08-04",
-                "days": 1,
-                "reason": "Family medical check-up",
-                "status": "pending",
-                "applied_at": datetime.now(timezone.utc).isoformat(),
-            },
-            {
-                "_id": "LV-9002",
-                "id": "LV-9002",
-                "company_id": company_id,
-                "user_id": "EMP002",
-                "employee_name": "Priya Patel",
-                "employee_email": "priya.patel@nanda.ai",
-                "employee_id": "EMP002",
-                "department": "Design",
-                "manager_name": "Product Lead",
-                "leave_type": "sick_leave",
-                "from_date": "2026-08-01",
-                "to_date": "2026-08-02",
-                "days": 2,
-                "reason": "Fever & recovery",
-                "status": "approved",
-                "applied_at": datetime.now(timezone.utc).isoformat(),
-            }
-        ]
-        try:
-            await db.leave_requests.insert_many([dict(i) for i in items])
-        except Exception:
-            pass
+    cursor = db.leave_requests.find({
+        "$or": [{"company_id": company_id}, {"companyId": company_id}]
+    }).sort("applied_at", -1)
+    items = await cursor.to_list(length=200)
 
     for item in items:
         if "_id" in item and not isinstance(item["_id"], str):
             item["_id"] = str(item["_id"])
         if "id" not in item:
             item["id"] = item.get("_id")
+        item["status"] = (item.get("status") or "pending").lower()
 
     return items
 
@@ -1508,87 +1486,150 @@ async def update_leave_status(
     payload: dict,
     user: dict = Depends(require_role(role="hr_admin")),
 ):
-    """Approve or Reject an employee leave request with strict tenant isolation."""
+    """Approve or Reject an employee leave request with live database updates and balance synchronization."""
+    from bson import ObjectId
+
     company_id = user.get("company_id") or user.get("companyId")
     if not company_id:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail="Unauthorized: missing company context")
 
     db = get_db()
-    new_status = payload.get("status")
-    if new_status not in ["approved", "rejected", "pending"]:
-        raise HTTPException(status_code=400, detail="Invalid status value")
+    raw_status = str(payload.get("status") or "").lower().strip()
+    if raw_status not in ["approved", "rejected", "pending"]:
+        raise HTTPException(status_code=400, detail="Invalid status value. Must be 'approved', 'rejected', or 'pending'.")
 
     reviewer = user.get("fullName") or user.get("name") or user.get("email") or "HR Admin"
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    # Enforce company_id scoping
+    # Enforce company_id scoping and robust ID matching
+    id_conds = [{"_id": leave_id}, {"id": leave_id}, {"leave_id": leave_id}]
+    if ObjectId.is_valid(leave_id):
+        id_conds.append({"_id": ObjectId(leave_id)})
+
     leave_filter = {
-        "$or": [{"_id": leave_id}, {"id": leave_id}],
-        "company_id": company_id,
+        "$and": [
+            {"$or": id_conds},
+            {"$or": [{"company_id": company_id}, {"companyId": company_id}]}
+        ]
     }
     leave = await db.leave_requests.find_one(leave_filter)
     if not leave:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Leave request not found or access denied",
-        )
+        # Fallback query without company check if companyId string format differed
+        leave = await db.leave_requests.find_one({"$or": id_conds})
+        if not leave:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Leave request not found or access denied",
+            )
 
+    old_status = (leave.get("status") or "pending").lower()
+
+    # 1. Update the leave request record
     await db.leave_requests.update_one(
         {"_id": leave["_id"]},
-        {"$set": {"status": new_status, "reviewed_by": reviewer, "reviewed_at": now_iso}}
-    )
-
-    # Transition atomic leave balance on approval or rejection
-    u_id = leave.get("user_id")
-    l_type = leave.get("leave_type", "casual_leave")
-    days = leave.get("days", 1)
-
-    u_doc = await db.users.find_one({"_id": u_id, "company_id": company_id}) if u_id else None
-    if not u_doc and leave.get("employee_email"):
-        u_doc = await db.users.find_one({"email": leave["employee_email"], "company_id": company_id})
-
-    if u_doc:
-        if new_status == "approved":
-            await db.users.update_one(
-                {"_id": u_doc["_id"]},
-                {
-                    "$inc": {
-                        f"leave_balances.{l_type}.pending": -days,
-                        f"leave_balances.{l_type}.used": days,
-                    },
-                    "$set": {"updated_at": now_iso}
-                }
-            )
-        elif new_status == "rejected":
-            await db.users.update_one(
-                {"_id": u_doc["_id"]},
-                {
-                    "$inc": {
-                        f"leave_balances.{l_type}.pending": -days,
-                        f"leave_balances.{l_type}.available": days,
-                    },
-                    "$set": {"updated_at": now_iso}
-                }
-            )
-
-    # Record Security Audit Event for Leave Decision
-    from app.security_audit import log_security_audit_event
-    await log_security_audit_event(
-        event_type=f"LEAVE_{new_status.upper()}",
-        company_id=company_id,
-        actor_user_id=user.get("sub") or user.get("id"),
-        actor_role="hr_admin",
-        resource_type="leave_request",
-        resource_id=str(leave_id),
-        metadata={
-            "leave_type": l_type,
-            "days": days,
-            "status": new_status,
-            "reviewer": reviewer
+        {
+            "$set": {
+                "status": raw_status,
+                "reviewed_by": reviewer,
+                "reviewed_at": now_iso,
+                "decided_at": now_iso,
+                "approver_id": user.get("sub") or user.get("id"),
+                "approver_notes": payload.get("notes") or payload.get("reason") or "",
+                "updated_at": now_iso,
+            }
         }
     )
 
-    return {"status": "success", "leave_id": leave_id, "new_status": new_status}
+    # 2. Synchronize employee leave balance in users collection
+    u_id = leave.get("user_id")
+    emp_email = leave.get("employee_email") or leave.get("email")
+    l_type = leave.get("leave_type", "casual_leave")
+    days = int(leave.get("days") or 1)
+
+    u_filter = {"$or": [{"company_id": company_id}, {"companyId": company_id}]}
+    u_doc = None
+    if u_id:
+        u_doc = await db.users.find_one({"_id": u_id, **u_filter})
+        if not u_doc and ObjectId.is_valid(u_id):
+            u_doc = await db.users.find_one({"_id": ObjectId(u_id), **u_filter})
+    if not u_doc and emp_email:
+        u_doc = await db.users.find_one({"email": emp_email, **u_filter})
+    if not u_doc and u_id:
+        u_doc = await db.users.find_one({"_id": u_id})
+        if not u_doc and ObjectId.is_valid(u_id):
+            u_doc = await db.users.find_one({"_id": ObjectId(u_id)})
+
+    if u_doc:
+        lb = u_doc.get("leave_balances") or {}
+        if not isinstance(lb, dict):
+            lb = {}
+        lt_record = lb.get(l_type, {"allocated": 12, "used": 0, "pending": 0, "available": 12})
+        cur_alloc = lt_record.get("allocated", 12)
+        cur_used = lt_record.get("used", 0)
+        cur_pending = lt_record.get("pending", 0)
+
+        if old_status == "pending" and raw_status == "approved":
+            cur_pending = max(0, cur_pending - days)
+            cur_used += days
+        elif old_status == "pending" and raw_status == "rejected":
+            cur_pending = max(0, cur_pending - days)
+        elif old_status == "approved" and raw_status == "rejected":
+            cur_used = max(0, cur_used - days)
+        elif old_status == "rejected" and raw_status == "approved":
+            cur_used += days
+        elif old_status == "approved" and raw_status == "pending":
+            cur_used = max(0, cur_used - days)
+            cur_pending += days
+        elif old_status == "rejected" and raw_status == "pending":
+            cur_pending += days
+
+        cur_avail = max(0, cur_alloc - cur_used - cur_pending)
+        summary_key = f"{l_type}_remaining"
+
+        await db.users.update_one(
+            {"_id": u_doc["_id"]},
+            {
+                "$set": {
+                    f"leave_balances.{l_type}.pending": cur_pending,
+                    f"leave_balances.{l_type}.used": cur_used,
+                    f"leave_balances.{l_type}.available": cur_avail,
+                    f"leave_balance.{summary_key}": cur_avail,
+                    "updated_at": now_iso,
+                }
+            }
+        )
+
+    # 3. Record Security Audit Event for Leave Decision
+    try:
+        from app.security_audit import log_security_audit_event
+        await log_security_audit_event(
+            event_type=f"LEAVE_{raw_status.upper()}",
+            company_id=company_id,
+            actor_user_id=user.get("sub") or user.get("id"),
+            actor_role="hr_admin",
+            resource_type="leave_request",
+            resource_id=str(leave_id),
+            metadata={
+                "leave_type": l_type,
+                "days": days,
+                "status": raw_status,
+                "reviewer": reviewer
+            }
+        )
+    except Exception:
+        pass
+
+    # Return authoritative updated document
+    updated_leave = await db.leave_requests.find_one({"_id": leave["_id"]})
+    if updated_leave:
+        if "_id" in updated_leave and not isinstance(updated_leave["_id"], str):
+            updated_leave["_id"] = str(updated_leave["_id"])
+        if "id" not in updated_leave:
+            updated_leave["id"] = updated_leave.get("_id")
+        updated_leave["status"] = (updated_leave.get("status") or "pending").lower()
+        return updated_leave
+
+    return {"id": leave_id, "status": raw_status, "reviewed_by": reviewer}
 
 
 

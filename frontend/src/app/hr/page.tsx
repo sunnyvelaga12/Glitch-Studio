@@ -1008,6 +1008,7 @@ function LeavesTab({ companyId }: { companyId: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
   const loadLeaves = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -1026,31 +1027,41 @@ function LeavesTab({ companyId }: { companyId: string }) {
   const handleStatusChange = async (leaveId: string, newStatus: "approved" | "rejected") => {
     setActionLoading(leaveId);
     try {
-      await apiFetch(`${BACKEND_URL}/api/hr/leaves/${leaveId}/status`, {
+      const updated = await apiFetch(`${BACKEND_URL}/api/hr/leaves/${leaveId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
-      setLeaves(prev => prev.map(l => (l.id === leaveId || l._id === leaveId) ? { ...l, status: newStatus } : l));
+      setLeaves(prev => prev.map(l => (l.id === leaveId || l._id === leaveId) ? { ...l, status: newStatus, reviewed_by: updated?.reviewed_by || "HR Admin" } : l));
+      setToast({
+        text: `Leave request successfully ${newStatus === "approved" ? "APPROVED" : "REJECTED"} and employee balance updated!`,
+        type: "success"
+      });
+      setTimeout(() => setToast(null), 4000);
+      await loadLeaves();
     } catch (e: any) {
-      alert(`Error updating leave status: ${e.message}`);
+      setToast({ text: `Failed to update leave: ${e.message}`, type: "error" });
+      setTimeout(() => setToast(null), 5000);
     } finally {
       setActionLoading(null);
     }
   };
 
-  const filteredLeaves = leaves.filter(l => filter === "all" ? true : l.status === filter);
-  const pendingCount = leaves.filter(l => l.status === "pending").length;
-  const approvedCount = leaves.filter(l => l.status === "approved").length;
-  const rejectedCount = leaves.filter(l => l.status === "rejected").length;
+  const normStatus = (st: string) => (st || "pending").toLowerCase();
+  const filteredLeaves = leaves.filter(l => filter === "all" ? true : normStatus(l.status) === filter);
+  const pendingCount = leaves.filter(l => normStatus(l.status) === "pending").length;
+  const approvedCount = leaves.filter(l => normStatus(l.status) === "approved").length;
+  const rejectedCount = leaves.filter(l => normStatus(l.status) === "rejected").length;
 
-  const leaveBadge = (st: string) => {
+  const leaveBadge = (rawSt: string) => {
+    const st = normStatus(rawSt);
     if (st === "approved") return { bg: "#f0fdf4", text: "#15803d", border: "#bbf7d0", label: "Approved" };
     if (st === "rejected") return { bg: "#fff1f2", text: "#be123c", border: "#fecdd3", label: "Rejected" };
     return { bg: "#fffbeb", text: "#b45309", border: "#fde68a", label: "Pending Approval" };
   };
 
   const formatLeaveType = (t: string) => {
+    if (!t) return "Leave";
     if (t === "casual_leave") return "Casual Leave (CL)";
     if (t === "sick_leave") return "Sick Leave (SL)";
     if (t === "privilege_leave") return "Privilege Leave (PL)";
@@ -1061,6 +1072,18 @@ function LeavesTab({ companyId }: { companyId: string }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }} className="animate-fade-in">
       {err && <ErrBanner msg={err} onClose={() => setErr(null)} />}
+      {toast && (
+        <div style={{
+          padding: "12px 18px", borderRadius: 12, fontSize: 13, fontWeight: 700,
+          background: toast.type === "success" ? "#f0fdf4" : "#fff1f2",
+          border: `1px solid ${toast.type === "success" ? "#bbf7d0" : "#fecdd3"}`,
+          color: toast.type === "success" ? "#15803d" : "#be123c",
+          display: "flex", alignItems: "center", gap: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.06)"
+        }}>
+          <Icon name={toast.type === "success" ? "check_circle" : "error"} size={18} color={toast.type === "success" ? "#15803d" : "#be123c"} />
+          <span>{toast.text}</span>
+        </div>
+      )}
 
       {/* Metrics Header */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: 14 }}>
@@ -1078,20 +1101,27 @@ function LeavesTab({ companyId }: { companyId: string }) {
             <p style={{ margin: 0, fontSize: 15, fontWeight: 800, color: T.textPrimary, display: "flex", alignItems: "center", gap: 6 }}>
               <Icon name="event_available" size={20} color={T.indigo} /> Employee Leave Applications
             </p>
-            <p style={{ margin: "2px 0 0", fontSize: 12, color: T.textMuted }}>Review, approve, or reject employee time-off requests for {companyId}.</p>
+            <p style={{ margin: "2px 0 0", fontSize: 12, color: T.textMuted }}>Review, approve, or reject live employee time-off requests for {companyId}.</p>
           </div>
-          <div style={{ display: "flex", gap: 6, background: T.mutedBg, padding: 3, borderRadius: 10 }}>
-            {(["all", "pending", "approved", "rejected"] as const).map(st => (
-              <button key={st} onClick={() => setFilter(st)}
-                style={{ padding: "5px 14px", borderRadius: 8, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", textTransform: "capitalize", transition: "all 0.15s",
-                  background: filter === st ? "#fff" : "transparent",
-                  color: filter === st ? T.indigo : T.textSecondary,
-                  boxShadow: filter === st ? "0 1px 4px rgba(0,0,0,.08)" : "none"
-                }}
-              >
-                {st} ({st === "all" ? leaves.length : st === "pending" ? pendingCount : st === "approved" ? approvedCount : rejectedCount})
-              </button>
-            ))}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", gap: 6, background: T.mutedBg, padding: 3, borderRadius: 10 }}>
+              {(["all", "pending", "approved", "rejected"] as const).map(st => (
+                <button key={st} onClick={() => setFilter(st)}
+                  style={{ padding: "5px 14px", borderRadius: 8, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", textTransform: "capitalize", transition: "all 0.15s",
+                    background: filter === st ? "#fff" : "transparent",
+                    color: filter === st ? T.indigo : T.textSecondary,
+                    boxShadow: filter === st ? "0 1px 4px rgba(0,0,0,.08)" : "none"
+                  }}
+                >
+                  {st} ({st === "all" ? leaves.length : st === "pending" ? pendingCount : st === "approved" ? approvedCount : rejectedCount})
+                </button>
+              ))}
+            </div>
+            <button onClick={loadLeaves} disabled={loading} title="Refresh Requests"
+              style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${T.cardBorder}`, background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: T.textSecondary }}>
+              <Icon name="refresh" size={16} color={T.textSecondary} />
+              <span>Refresh</span>
+            </button>
           </div>
         </div>
 
@@ -1120,14 +1150,16 @@ function LeavesTab({ companyId }: { companyId: string }) {
                 {filteredLeaves.map((row, idx) => {
                   const b = leaveBadge(row.status);
                   const isBusy = actionLoading === row.id || actionLoading === row._id;
+                  const targetId = row.id || row._id || "";
+                  const st = normStatus(row.status);
                   return (
-                    <tr key={row.id || idx} style={{ borderTop: "1px solid #f1f5f9", transition: "background 0.15s" }}
+                    <tr key={targetId || idx} style={{ borderTop: "1px solid #f1f5f9", transition: "background 0.15s" }}
                       onMouseEnter={e => (e.currentTarget.style.background = "#f8faff")}
                       onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                     >
                       <td style={{ padding: "14px 18px" }}>
-                        <p style={{ margin: 0, fontWeight: 800, color: T.textPrimary }}>{row.employee_name}</p>
-                        <p style={{ margin: "2px 0 0", fontSize: 11, color: T.textMuted }}>{row.department} · {row.employee_email}</p>
+                        <p style={{ margin: 0, fontWeight: 800, color: T.textPrimary }}>{row.employee_name || "Employee"}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 11, color: T.textMuted }}>{row.department || "General"} · {row.employee_email}</p>
                       </td>
                       <td style={{ padding: "14px 18px" }}>
                         <span style={{ padding: "4px 10px", borderRadius: 8, background: "#eef2ff", color: T.indigo, fontWeight: 700, fontSize: 11, border: "1px solid #c7d2fe" }}>
@@ -1138,7 +1170,7 @@ function LeavesTab({ companyId }: { companyId: string }) {
                         <p style={{ margin: 0, fontWeight: 700, color: T.textPrimary }}>{row.from_date} to {row.to_date}</p>
                         <p style={{ margin: "2px 0 0", fontSize: 11, color: T.textMuted }}>{row.days} day(s)</p>
                       </td>
-                      <td style={{ padding: "14px 18px", color: T.textSecondary, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <td style={{ padding: "14px 18px", color: T.textSecondary, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.reason}>
                         {row.reason || "—"}
                       </td>
                       <td style={{ padding: "14px 18px" }}>
@@ -1147,15 +1179,15 @@ function LeavesTab({ companyId }: { companyId: string }) {
                         </span>
                       </td>
                       <td style={{ padding: "14px 18px" }}>
-                        {row.status === "pending" ? (
+                        {st === "pending" ? (
                           <div style={{ display: "flex", gap: 8 }}>
-                            <button onClick={() => handleStatusChange(row.id || row._id || "", "approved")} disabled={isBusy}
+                            <button onClick={() => handleStatusChange(targetId, "approved")} disabled={isBusy}
                               style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: T.successGrad, color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isBusy ? 0.5 : 1, display: "flex", alignItems: "center", gap: 4 }}
                             >
                               <Icon name="check" size={14} color="#fff" />
-                              Approve
+                              {isBusy ? "Updating…" : "Approve"}
                             </button>
-                            <button onClick={() => handleStatusChange(row.id || row._id || "", "rejected")} disabled={isBusy}
+                            <button onClick={() => handleStatusChange(targetId, "rejected")} disabled={isBusy}
                               style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #fecdd3", background: "#fff1f2", color: T.rose, fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: isBusy ? 0.5 : 1, display: "flex", alignItems: "center", gap: 4 }}
                             >
                               <Icon name="close" size={14} color={T.rose} />
@@ -1163,9 +1195,20 @@ function LeavesTab({ companyId }: { companyId: string }) {
                             </button>
                           </div>
                         ) : (
-                          <span style={{ fontSize: 11, color: T.textMuted, fontWeight: 500 }}>
-                            Reviewed by {row.reviewed_by || "HR"}
-                          </span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 11, color: T.textMuted, fontWeight: 500 }}>
+                              Reviewed by {row.reviewed_by || "HR Admin"}
+                            </span>
+                            {/* Option to change decision if needed */}
+                            <button
+                              onClick={() => handleStatusChange(targetId, st === "approved" ? "rejected" : "approved")}
+                              disabled={isBusy}
+                              title={`Change to ${st === "approved" ? "Rejected" : "Approved"}`}
+                              style={{ padding: "3px 8px", borderRadius: 6, border: `1px solid ${T.cardBorder}`, background: "#fff", fontSize: 10, fontWeight: 600, color: T.textSecondary, cursor: "pointer" }}
+                            >
+                              {st === "approved" ? "Reject" : "Approve"}
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>

@@ -70,6 +70,13 @@ backend/uploads/
 *.log
 load_test_results.json
 
+# Raw Data & Seed Dumps (operational data lives in MongoDB, not the codebase)
+backend/data/
+data/
+*.csv
+*.xlsx
+*.tsv
+
 # IDE & OS specific files
 .vscode/
 .idea/
